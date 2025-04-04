@@ -64,7 +64,7 @@ local Window = Rayfield:CreateWindow({
 -- Variáveis de Controle
 local ESPEnabled = false
 local AimbotEnabled = false
-local AimbotKey = Enum.KeyCode.E
+local AimbotKey = Enum.KeyCode.E  -- Valor padrão garantido
 local AimbotMode = "Hold"
 
 -- Configurações ajustáveis
@@ -81,6 +81,21 @@ local AimbotSettings = {
     TeamCheck = true,
     VisibleCheck = true
 }
+
+-- Função para converter para Enum.KeyCode com segurança
+local function getValidKeybind(key)
+    if type(key) == "string" then
+        -- Remove espaços e converte para maiúsculas
+        local cleanedKey = key:gsub("%s+", ""):upper()
+        -- Verifica se existe no Enum.KeyCode
+        if Enum.KeyCode[cleanedKey] then
+            return Enum.KeyCode[cleanedKey]
+        end
+    elseif typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode then
+        return key
+    end
+    return Enum.KeyCode.E  -- Fallback para tecla E
+end
 
 -- Criar a Aba Principal
 local MainTab = Window:CreateTab("Funções", 4483345998)
@@ -111,7 +126,6 @@ local DestroyButton = MainTab:CreateButton({
     end
 })
 
-
 -- Seção para Aimbot
 local AimbotSection = MainTab:CreateSection("Aimbot")
 
@@ -129,26 +143,16 @@ local AimbotToggle = MainTab:CreateToggle({
     end
 })
 
+-- Keybind do Aimbot (Corrigido)
 local AimbotKeybind = MainTab:CreateKeybind({
     Name = "Tecla do Aimbot",
     CurrentKeybind = "E",
     HoldToInteract = false,
     Flag = "AimbotKeybind",
     Callback = function(Keybind)
-        -- Converter para Enum.KeyCode independentemente do tipo de entrada
-        local keyCode
-        if type(Keybind) == "string" then
-            keyCode = Enum.KeyCode[Keybind:upper()]
-        else
-            keyCode = Keybind
-        end
-        
-        if keyCode then
-            AimbotKey = keyCode
-            print("Tecla do Aimbot alterada para:", Keybind)
-        else
-            warn("Tecla inválida:", Keybind)
-        end
+        local newKey = getValidKeybind(Keybind)
+        AimbotKey = newKey
+        print("[Aimbot] Tecla definida para:", newKey.Name or "E")
     end
 })
 
@@ -160,6 +164,7 @@ local AimbotModeDropdown = MainTab:CreateDropdown({
     Flag = "AimbotMode",
     Callback = function(Option)
         AimbotMode = Option
+        print("[Aimbot] Modo alterado para:", Option)
     end
 })
 
@@ -303,11 +308,11 @@ function StopAimbot()
     end
 end
 
--- Lógica de Ativação do Aimbot melhorada
+-- Lógica de Ativação do Aimbot (Corrigida)
 table.insert(Resources.Connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not AimbotEnabled then return end
     
-    -- Verificar se a tecla pressionada é a tecla do Aimbot
+    -- Verificação robusta da tecla
     if input.KeyCode == AimbotKey then
         if AimbotMode == "Hold" then
             Resources.Aimbot.Active = true
@@ -320,16 +325,17 @@ table.insert(Resources.Connections, UserInputService.InputBegan:Connect(function
                 StopAimbot()
             end
         end
+        print("[Aimbot] Estado:", Resources.Aimbot.Active and "Ativado" or "Desativado")
     end
 end))
 
 table.insert(Resources.Connections, UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if gameProcessed or not AimbotEnabled then return end
+    if gameProcessed or not AimbotEnabled or AimbotMode ~= "Hold" then return end
     
-    -- Verificar se a tecla liberada é a tecla do Aimbot
-    if input.KeyCode == AimbotKey and AimbotMode == "Hold" then
+    if input.KeyCode == AimbotKey then
         Resources.Aimbot.Active = false
         StopAimbot()
+        print("[Aimbot] Desativado (modo Hold)")
     end
 end))
 
