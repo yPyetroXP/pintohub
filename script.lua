@@ -103,6 +103,15 @@ local ESPToggle = MainTab:CreateToggle({
     end
 })
 
+local DestroyButton = MainTab:CreateButton({
+    Name = "Destruir Interface",
+    Callback = function()
+        Window:Destroy()
+        print("Interface destruída.")
+    end
+})
+
+
 -- Seção para Aimbot
 local AimbotSection = MainTab:CreateSection("Aimbot")
 
