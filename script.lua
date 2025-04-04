@@ -1,5 +1,5 @@
 -- Carregar a Orion UI Library
-local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/shlexware/Orion/main/source')))()
+local OrionLib = loadstring(game:HttpGet(('https://raw.githubusercontent.com/jensonhirst/Orion/main/source')))()
 
 -- Criar a Janela Principal
 local Window = OrionLib:MakeWindow({
