@@ -12,6 +12,9 @@ local Window = OrionLib:MakeWindow({
 -- Variáveis de Controle
 local ESPEnabled = false
 local AimbotEnabled = false
+local AimbotKey = Enum.KeyCode.E -- Tecla padrão
+local AimbotMode = "Hold" -- Modo padrão
+local AimbotActive = false
 
 -- Criar a Aba Principal
 local Tab = Window:MakeTab({
@@ -36,20 +39,28 @@ Tab:AddToggle({
     end    
 })
 
--- Adicionar Toggle para o Aimbot
-Tab:AddToggle({
-    Name = "Ativar Aimbot",
-    Default = false,
+-- Adicionar Seletor de Tecla (Keybind) para o Aimbot
+Tab:AddBind({
+    Name = "Tecla do Aimbot",
+    Default = AimbotKey,
+    Hold = false,
     Save = true,
-    Flag = "Aimbot_Toggle",
-    Callback = function(Value)
-        AimbotEnabled = Value
-        if AimbotEnabled then
-            EnableAimbot()
-        else
-            DisableAimbot()
-        end
-    end    
+    Flag = "AimbotKeybind",
+    Callback = function(Key)
+        AimbotKey = Key
+    end
+})
+
+-- Adicionar Menu de Seleção para o Modo do Aimbot
+Tab:AddDropdown({
+    Name = "Modo do Aimbot",
+    Default = AimbotMode,
+    Options = {"Hold", "Toggle"},
+    Save = true,
+    Flag = "AimbotMode",
+    Callback = function(Mode)
+        AimbotMode = Mode
+    end
 })
 
 -- Funções do ESP
@@ -101,9 +112,9 @@ function GetClosestPlayer()
     return closestPlayer
 end
 
-function EnableAimbot()
+function StartAimbot()
     AimbotConnection = RunService.RenderStepped:Connect(function()
-        if AimbotEnabled then
+        if AimbotActive then
             local target = GetClosestPlayer()
             if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
                 Camera.CFrame = CFrame.new(Camera.CFrame.Position, target.Character.HumanoidRootPart.Position)
@@ -112,31 +123,40 @@ function EnableAimbot()
     end)
 end
 
-function DisableAimbot()
+function StopAimbot()
     if AimbotConnection then
         AimbotConnection:Disconnect()
         AimbotConnection = nil
     end
 end
 
--- Atualizar ESP Quando Jogadores Entram ou Saem
-game:GetService("Players").PlayerAdded:Connect(function(player)
-    if ESPEnabled then
-        local highlight = Instance.new("Highlight")
-        highlight.Adornee = player.Character or player.CharacterAdded:Wait()
-        highlight.Parent = game.CoreGui
-        highlight.FillColor = Color3.fromRGB(255, 0, 0)
-        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-        ESPObjects[player] = highlight
+-- Lógica de Ativação do Aimbot com Keybind e Modo
+local UserInputService = game:GetService("UserInputService")
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == AimbotKey then
+        if AimbotMode == "Hold" then
+            AimbotActive = true
+            StartAimbot()
+        elseif AimbotMode == "Toggle" then
+            AimbotActive = not AimbotActive
+            if AimbotActive then
+                StartAimbot()
+            else
+                StopAimbot()
+            end
+        end
     end
 end)
 
-game:GetService("Players").PlayerRemoving:Connect(function(player)
-    if ESPObjects[player] then
-        ESPObjects[player]:Destroy()
-        ESPObjects[player] = nil
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == AimbotKey and AimbotMode == "Hold" then
+        AimbotActive = false
+        StopAimbot()
     end
 end)
 
--- Iniciar a Interface da Orion Library
+-- Inicializar a Interface
 OrionLib:Init()
