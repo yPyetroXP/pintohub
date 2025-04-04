@@ -120,14 +120,17 @@ local AimbotToggle = MainTab:CreateToggle({
     end
 })
 
--- Keybind para o Aimbot
 local AimbotKeybind = MainTab:CreateKeybind({
     Name = "Tecla do Aimbot",
     CurrentKeybind = "E",
     HoldToInteract = false,
     Flag = "AimbotKeybind",
     Callback = function(Keybind)
-        AimbotKey = Enum.KeyCode[Keybind]
+        if typeof(Keybind) == "string" then
+            AimbotKey = Enum.KeyCode[Keybind]
+        else
+            AimbotKey = Keybind
+        end
     end
 })
 
