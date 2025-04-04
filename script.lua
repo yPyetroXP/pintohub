@@ -135,10 +135,19 @@ local AimbotKeybind = MainTab:CreateKeybind({
     HoldToInteract = false,
     Flag = "AimbotKeybind",
     Callback = function(Keybind)
-        if typeof(Keybind) == "string" then
-            AimbotKey = Enum.KeyCode[Keybind]
+        -- Converter para Enum.KeyCode independentemente do tipo de entrada
+        local keyCode
+        if type(Keybind) == "string" then
+            keyCode = Enum.KeyCode[Keybind:upper()]
         else
-            AimbotKey = Keybind
+            keyCode = Keybind
+        end
+        
+        if keyCode then
+            AimbotKey = keyCode
+            print("Tecla do Aimbot alterada para:", Keybind)
+        else
+            warn("Tecla inválida:", Keybind)
         end
     end
 })
@@ -294,10 +303,12 @@ function StopAimbot()
     end
 end
 
--- Lógica de Ativação do Aimbot
+-- Lógica de Ativação do Aimbot melhorada
 table.insert(Resources.Connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == AimbotKey and AimbotEnabled then
+    if gameProcessed or not AimbotEnabled then return end
+    
+    -- Verificar se a tecla pressionada é a tecla do Aimbot
+    if input.KeyCode == AimbotKey then
         if AimbotMode == "Hold" then
             Resources.Aimbot.Active = true
             StartAimbot()
@@ -313,8 +324,10 @@ table.insert(Resources.Connections, UserInputService.InputBegan:Connect(function
 end))
 
 table.insert(Resources.Connections, UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == AimbotKey and AimbotMode == "Hold" and AimbotEnabled then
+    if gameProcessed or not AimbotEnabled then return end
+    
+    -- Verificar se a tecla liberada é a tecla do Aimbot
+    if input.KeyCode == AimbotKey and AimbotMode == "Hold" then
         Resources.Aimbot.Active = false
         StopAimbot()
     end
