@@ -1,10 +1,9 @@
--- Carregar a Rayfield UI Library com tratamento de erro
-local Rayfield, rayfieldError = pcall(function()
+local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 end)
 
-if not Rayfield then
-    warn("Falha ao carregar Rayfield:", rayfieldError)
+if not success then
+    warn("Falha ao carregar Rayfield:", Rayfield)
     return
 end
 
