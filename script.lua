@@ -137,9 +137,20 @@ local AimbotToggle = MainTab:CreateToggle({
     Flag = "Aimbot_Toggle",
     Callback = function(Value)
         AimbotEnabled = Value
-        if not AimbotEnabled then
+        if AimbotEnabled then
+            StartAimbot()
+            -- Inicia o aimbot corretamente baseado no modo selecionado
+            if AimbotMode == "Toggle" then
+                Resources.Aimbot.Active = true
+                print("[Aimbot] Ativado (modo Toggle)")
+            else
+                Resources.Aimbot.Active = false
+                print("[Aimbot] Preparado (modo Hold - aguardando pressionar tecla)")
+            end
+        else
             Resources.Aimbot.Active = false
             StopAimbot()
+            print("[Aimbot] Desativado")
         end
     end
 })
@@ -164,6 +175,18 @@ local AimbotModeDropdown = MainTab:CreateDropdown({
     Callback = function(Option)
         AimbotMode = Option
         print("[Aimbot] Modo alterado para:", Option)
+        
+        -- Resetar o estado ativo quando mudar o modo
+        if AimbotEnabled then
+            if AimbotMode == "Toggle" then
+                Resources.Aimbot.Active = true
+                StartAimbot()
+                print("[Aimbot] Modo alterado para Toggle - ativado automaticamente")
+            else
+                Resources.Aimbot.Active = false
+                print("[Aimbot] Modo alterado para Hold - aguardando pressionar tecla")
+            end
+        end
     end
 })
 
@@ -274,7 +297,10 @@ local function GetClosestPlayer()
 end
 
 function StartAimbot()
-    if Resources.Aimbot.Connection then return end
+    if Resources.Aimbot.Connection then
+        Resources.Aimbot.Connection:Disconnect()
+        Resources.Aimbot.Connection = nil
+    end
 
     Resources.Aimbot.Connection = RunService.RenderStepped:Connect(function()
         if not AimbotEnabled or not Resources.Aimbot.Active then return end
@@ -303,16 +329,11 @@ table.insert(Resources.Connections, UserInputService.InputBegan:Connect(function
     if input.KeyCode == AimbotKey then
         if AimbotMode == "Hold" then
             Resources.Aimbot.Active = true
-            StartAimbot()
+            print("[Aimbot] Ativado (modo Hold - pressionando)")
         elseif AimbotMode == "Toggle" then
             Resources.Aimbot.Active = not Resources.Aimbot.Active
-            if Resources.Aimbot.Active then
-                StartAimbot()
-            else
-                StopAimbot()
-            end
+            print("[Aimbot] Estado:", Resources.Aimbot.Active and "Ativado" or "Desativado", "(modo Toggle)")
         end
-        print("[Aimbot] Estado:", Resources.Aimbot.Active and "Ativado" or "Desativado")
     end
 end))
 
@@ -320,8 +341,7 @@ table.insert(Resources.Connections, UserInputService.InputEnded:Connect(function
     if gameProcessed or not AimbotEnabled or AimbotMode ~= "Hold" then return end
     if input.KeyCode == AimbotKey then
         Resources.Aimbot.Active = false
-        StopAimbot()
-        print("[Aimbot] Desativado (modo Hold)")
+        print("[Aimbot] Desativado (modo Hold - tecla solta)")
     end
 end))
 
