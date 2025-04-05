@@ -16,7 +16,7 @@ end
 -- Função para mover o mouse
 local function mousemoveabs(x, y)
     local vim = game:GetService("VirtualInputManager")
-    vim:SendMouseMoveEvent(x, y, game:GetService("Players").LocalPlayer.PlayerGui)
+    vim:SendMouseMoveEvent(x, y, game:GetService("Players").LocalPlayer)
 end
 
 local Resources = {
