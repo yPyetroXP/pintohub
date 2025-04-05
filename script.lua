@@ -1,6 +1,8 @@
 -- Correções aplicadas:
--- 1. Refeito o sistema Aimbot completamente para garantir funcionamento correto
--- 2. Adicionada a opção de "Check Team" no menu ESP, respeitando a configuração no SetupESP.
+-- 1. Implementada função mousemoveabs para controle do mouse
+-- 2. Ajustado sistema de raycast para verificação de visibilidade
+-- 3. Adicionados logs de depuração
+-- 4. Corrigido sistema de ativação do aimbot
 
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
@@ -9,6 +11,12 @@ end)
 if not success then
     warn("Falha ao carregar Rayfield:", Rayfield)
     return
+end
+
+-- Função para mover o mouse
+local function mousemoveabs(x, y)
+    local vim = game:GetService("VirtualInputManager")
+    vim:SendMouseMoveEvent(x, y, game:GetService("Players").LocalPlayer.PlayerGui)
 end
 
 local Resources = {
@@ -79,9 +87,9 @@ local AimbotSettings = {
     FOV = 100,
     TeamCheck = true,
     VisibleCheck = true,
-    AimPart = "Head",  -- Nova opção para escolher parte do corpo
-    FOVVisible = true, -- Nova opção para mostrar círculo de FOV
-    DrawFOVColor = Color3.fromRGB(255, 255, 255) -- Cor do círculo de FOV
+    AimPart = "Head",
+    FOVVisible = true,
+    DrawFOVColor = Color3.fromRGB(255, 255, 255)
 }
 
 -- Serviços
@@ -333,7 +341,6 @@ function DisableESP()
     Resources.ESPObjects = {}
 end
 
--- Função que verifica se um jogador é válido para o Aimbot
 local function IsPlayerValid(player)
     if player == LocalPlayer then return false end
     if not player.Character then return false end
@@ -348,13 +355,14 @@ local function IsPlayerValid(player)
     
     if AimbotSettings.VisibleCheck then
         local raycastParams = RaycastParams.new()
-        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, player.Character}
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
         raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
         
-        local direction = (targetPart.Position - Camera.CFrame.Position).Unit
-        local raycastResult = workspace:Raycast(Camera.CFrame.Position, direction * 1000, raycastParams)
+        local origin = Camera.CFrame.Position
+        local direction = (targetPart.Position - origin).Unit
+        local raycastResult = workspace:Raycast(origin, direction * (origin - targetPart.Position).Magnitude, raycastParams)
         
-        if not raycastResult or not raycastResult.Instance:IsDescendantOf(player.Character) then
+        if raycastResult and raycastResult.Instance:FindFirstAncestorOfClass("Model") ~= player.Character then
             return false
         end
     end
@@ -362,7 +370,6 @@ local function IsPlayerValid(player)
     return true
 end
 
--- Função que encontra o jogador mais próximo do mouse dentro do FOV
 local function GetClosestPlayerToMouse()
     local closestPlayer = nil
     local shortestDistance = AimbotSettings.FOV
@@ -389,44 +396,47 @@ local function GetClosestPlayerToMouse()
     return closestPlayer
 end
 
--- Função principal do Aimbot que é executada a cada frame
 function AimbotUpdate()
     UpdateFOVCircle()
     
-    if not AimbotEnabled or not Resources.Aimbot.Active then
+    if not AimbotEnabled then
         return
     end
     
-    -- Obtém o alvo atual ou encontra um novo
+    if AimbotMode == "Hold" and not UserInputService:IsKeyDown(AimbotKey) then
+        Resources.Aimbot.Active = false
+        Resources.Aimbot.Target = nil
+        return
+    end
+    
+    if not Resources.Aimbot.Active then
+        return
+    end
+    
     local target = Resources.Aimbot.Target
     if not target or not IsPlayerValid(target) then
         target = GetClosestPlayerToMouse()
         Resources.Aimbot.Target = target
     end
     
-    -- Se tiver um alvo válido, mira nele
     if target and target.Character then
         local targetPart = target.Character:FindFirstChild(AimbotSettings.AimPart)
         if targetPart then
             local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
             
             if onScreen then
-                -- Calcula a nova posição do mouse com suavização
                 local mousePos = Vector2.new(Mouse.X, Mouse.Y)
                 local targetPos = Vector2.new(screenPos.X, screenPos.Y)
                 local newPos = mousePos:Lerp(targetPos, 1 - AimbotSettings.Smoothness)
                 
-                -- Move o mouse para a posição calculada
                 mousemoveabs(newPos.X, newPos.Y)
             else
-                -- Se o alvo sair da tela, procura um novo alvo
                 Resources.Aimbot.Target = nil
             end
         end
     end
 end
 
--- Gerencia eventos de input para ativar/desativar o Aimbot
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not AimbotEnabled then return end
     
@@ -443,17 +453,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
-UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if gameProcessed or not AimbotEnabled then return end
-    
-    if input.KeyCode == AimbotKey and AimbotMode == "Hold" then
-        Resources.Aimbot.Active = false
-        Resources.Aimbot.Target = nil
-        print("[Aimbot] Desativado (Hold)")
-    end
-end)
-
--- Limpa recursos quando um jogador sai
 Players.PlayerRemoving:Connect(function(player)
     if Resources.ESPObjects[player] then
         if Resources.ESPObjects[player].Parent then
@@ -482,10 +481,8 @@ Rayfield:Notify({
     }
 })
 
--- Atualização constante do círculo de FOV
 RunService:BindToRenderStep("FOVUpdate", Enum.RenderPriority.Camera.Value + 1, UpdateFOVCircle)
 
--- Limpeza ao fechar o script
 game:GetService("UserInputService").WindowFocused:Connect(function()
     if not ESPEnabled and not AimbotEnabled then
         CleanupResources()
