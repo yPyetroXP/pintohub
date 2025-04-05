@@ -17,38 +17,16 @@ local Resources = {
     }
 }
 
-local function CleanupResources()
-    for _, connection in pairs(Resources.Connections) do
-        if connection then connection:Disconnect() end
-    end
-    Resources.Connections = {}
-    for player, highlight in pairs(Resources.ESPObjects) do
-        if highlight and highlight.Parent then highlight:Destroy() end
-    end
-    Resources.ESPObjects = {}
-    if Resources.Aimbot.Connection then
-        Resources.Aimbot.Connection:Disconnect()
-        Resources.Aimbot.Connection = nil
-    end
-    Resources.Aimbot.Active = false
-    Resources.Aimbot.Target = nil
-    -- Restaurar hitboxes ao limpar recursos
-    if HitboxSettings.Enabled then
-        for _, player in pairs(Players:GetPlayers()) do
-            RestorePlayerHitbox(player)
-        end
-    end
-end
+-- Serviços
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
 
-local Window = Rayfield:CreateWindow({
-    Name = "Pinto Hub",
-    LoadingTitle = "Pinto Hub",
-    LoadingSubtitle = "by PintoTeam",
-    ConfigurationSaving = {Enabled = false, FolderName = "PintoHubConfig", FileName = "PintoHubSettings"},
-    Discord = {Enabled = false, Invite = "", RememberJoins = true},
-    KeySystem = false
-})
-
+-- Variáveis globais
 local ESPEnabled = false
 local AimbotEnabled = false
 local AimbotKey = Enum.KeyCode.E
@@ -72,22 +50,14 @@ local AimbotSettings = {
     DrawFOVColor = Color3.fromRGB(255, 255, 255)
 }
 
--- Configurações do Expand Hitbox
 local HitboxSettings = {
     Enabled = false,
     Size = 10,
     TeamCheck = true,
-    Transparency = 1
+    Visible = false, -- Nova configuração para visibilidade
+    Color = Color3.fromRGB(255, 0, 0), -- Nova configuração para cor
+    Transparency = 0.5 -- Transparência quando visível
 }
-
--- Serviços
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local Players = game:GetService("Players")
-local TeleportService = game:GetService("TeleportService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
 
 -- Controle de delay para logs
 local lastTargetLogTime = 0
@@ -103,6 +73,7 @@ FOVCircle.Filled = false
 FOVCircle.Transparency = 0.7
 FOVCircle.Color = AimbotSettings.DrawFOVColor
 
+-- Funções Auxiliares
 local function UpdateFOVCircle()
     if not FOVCircle then return end
     FOVCircle.Visible = AimbotEnabled and AimbotSettings.FOVVisible
@@ -140,6 +111,238 @@ end
 local function sanitizeProfileName(name)
     return name:gsub("[^%w%s]", ""):sub(1, 50)
 end
+
+-- Funções do ESP
+local function SetupESP(player)
+    if not player or not player.Character then 
+        print("[ESP] Jogador ou personagem não encontrado:", player and player.Name or "nil")
+        return 
+    end
+    if ESPSettings.TeamCheck and player.Team == LocalPlayer.Team then 
+        print("[ESP] Ignorando jogador do mesmo time:", player.Name)
+        return 
+    end
+
+    local function createHighlight(character)
+        if Resources.ESPObjects[player] and Resources.ESPObjects[player].Parent then
+            Resources.ESPObjects[player]:Destroy()
+        end
+        local highlight = Instance.new("Highlight")
+        highlight.Adornee = character
+        highlight.Parent = game.CoreGui
+        highlight.FillColor = ESPSettings.FillColor
+        highlight.OutlineColor = ESPSettings.OutlineColor
+        highlight.FillTransparency = ESPSettings.FillTransparency
+        highlight.OutlineTransparency = ESPSettings.OutlineTransparency
+        Resources.ESPObjects[player] = highlight
+        print("[ESP] Highlight criado para:", player.Name)
+    end
+
+    table.insert(Resources.Connections, player.CharacterAdded:Connect(function(character)
+        task.wait(1)
+        if ESPEnabled and (not ESPSettings.TeamCheck or player.Team ~= LocalPlayer.Team) then
+            createHighlight(character)
+            print("[ESP] Reaplicado para jogador que reapareceu:", player.Name)
+        end
+    end))
+    createHighlight(player.Character)
+end
+
+function EnableESP()
+    DisableESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then 
+            SetupESP(player)
+        end
+    end
+    print("[ESP] Ativado para todos os jogadores")
+end
+
+function DisableESP()
+    for player, highlight in pairs(Resources.ESPObjects) do
+        if highlight and highlight.Parent then highlight:Destroy() end
+    end
+    Resources.ESPObjects = {}
+    print("[ESP] Desativado")
+end
+
+-- Funções do Aimbot
+local function IsPlayerValid(player)
+    if not AimbotEnabled then return false end
+    if player == LocalPlayer then return false end
+    if not player.Character then return false end
+    
+    local humanoid = player.Character:FindFirstChild("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return false end
+    
+    local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
+    if not targetPart then 
+        print("[Aimbot] Parte do corpo não encontrada:", AimbotSettings.AimPart)
+        return false 
+    end
+    
+    if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then return false end
+    if AimbotSettings.VisibleCheck then
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        local origin = Camera.CFrame.Position
+        local direction = (targetPart.Position - origin).Unit * (targetPart.Position - origin).Magnitude
+        local raycastResult = workspace:Raycast(origin, direction, raycastParams)
+        if raycastResult and raycastResult.Instance then
+            local hitModel = raycastResult.Instance:FindFirstAncestorOfClass("Model")
+            if hitModel ~= player.Character then return false end
+        end
+    end
+    
+    return true
+end
+
+local function GetClosestPlayerToMouse()
+    local closestPlayer = nil
+    local shortestDistance = AimbotSettings.FOV
+    local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if IsPlayerValid(player) then
+            local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
+            if targetPart then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    if distance < shortestDistance then
+                        closestPlayer = player
+                        shortestDistance = distance
+                        local currentTime = tick()
+                        if currentTime - lastTargetLogTime >= targetLogCooldown then
+                            print("[Aimbot] Alvo encontrado:", player.Name, "Distância:", distance)
+                            lastTargetLogTime = currentTime
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    return closestPlayer
+end
+
+function AimbotUpdate()
+    if not AimbotEnabled then 
+        Resources.Aimbot.Target = nil
+        return 
+    end
+    
+    UpdateFOVCircle()
+    
+    if AimbotMode == "Hold" and not UserInputService:IsKeyDown(AimbotKey) then
+        Resources.Aimbot.Active = false
+        Resources.Aimbot.Target = nil
+        return
+    end
+    
+    if not Resources.Aimbot.Active then return end
+    
+    local target = Resources.Aimbot.Target
+    if not target or not IsPlayerValid(target) then
+        target = GetClosestPlayerToMouse()
+        Resources.Aimbot.Target = target
+    end
+    
+    if target and target.Character then
+        local targetPart = target.Character:FindFirstChild(AimbotSettings.AimPart)
+        if targetPart then
+            local currentCFrame = Camera.CFrame
+            local targetPosition = targetPart.Position
+            local targetCFrame = CFrame.new(currentCFrame.Position, targetPosition)
+            Camera.CFrame = currentCFrame:Lerp(targetCFrame, 1 - AimbotSettings.Smoothness)
+        end
+    end
+end
+
+-- Funções do Expand Hitbox
+local function ExpandPlayerHitbox(player)
+    if not player or player == LocalPlayer then return end
+    if HitboxSettings.TeamCheck and player.Team == LocalPlayer.Team then return end
+    if not player.Character then return end
+
+    local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
+    if humanoidRootPart then
+        humanoidRootPart.Size = Vector3.new(HitboxSettings.Size, HitboxSettings.Size, HitboxSettings.Size)
+        humanoidRootPart.Transparency = HitboxSettings.Visible and HitboxSettings.Transparency or 1
+        humanoidRootPart.BrickColor = BrickColor.new(HitboxSettings.Color)
+        humanoidRootPart.CanCollide = false
+        print("[Expand Hitbox] Hitbox expandida para:", player.Name)
+    end
+end
+
+local function RestorePlayerHitbox(player)
+    if not player or not player.Character then return end
+    local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
+    if humanoidRootPart then
+        humanoidRootPart.Size = Vector3.new(2, 2, 1)
+        humanoidRootPart.Transparency = 0
+        humanoidRootPart.CanCollide = true
+    end
+end
+
+function EnableHitboxExpansion()
+    if not HitboxSettings.Enabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            RestorePlayerHitbox(player)
+        end
+        return
+    end
+    for _, player in pairs(Players:GetPlayers()) do
+        ExpandPlayerHitbox(player)
+    end
+end
+
+local function SetupHitbox(player)
+    if not player or player == LocalPlayer then return end
+    table.insert(Resources.Connections, player.CharacterAdded:Connect(function(character)
+        task.wait(1)
+        if HitboxSettings.Enabled then
+            ExpandPlayerHitbox(player)
+            print("[Hitbox] Reaplicado para jogador que reapareceu:", player.Name)
+        end
+    end))
+    if HitboxSettings.Enabled then
+        ExpandPlayerHitbox(player)
+    end
+end
+
+local function CleanupResources()
+    for _, connection in pairs(Resources.Connections) do
+        if connection then connection:Disconnect() end
+    end
+    Resources.Connections = {}
+    for player, highlight in pairs(Resources.ESPObjects) do
+        if highlight and highlight.Parent then highlight:Destroy() end
+    end
+    Resources.ESPObjects = {}
+    if Resources.Aimbot.Connection then
+        Resources.Aimbot.Connection:Disconnect()
+        Resources.Aimbot.Connection = nil
+    end
+    Resources.Aimbot.Active = false
+    Resources.Aimbot.Target = nil
+    if HitboxSettings.Enabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            RestorePlayerHitbox(player)
+        end
+    end
+end
+
+-- Criação da UI
+local Window = Rayfield:CreateWindow({
+    Name = "Pinto Hub",
+    LoadingTitle = "Pinto Hub",
+    LoadingSubtitle = "by PintoTeam",
+    ConfigurationSaving = {Enabled = false, FolderName = "PintoHubConfig", FileName = "PintoHubSettings"},
+    Discord = {Enabled = false, Invite = "", RememberJoins = true},
+    KeySystem = false
+})
 
 -- Aba Funções
 local MainTab = Window:CreateTab("Funções", 4483345998)
@@ -352,6 +555,32 @@ local HitboxTeamCheckToggle = MainTab:CreateToggle({
     end
 })
 
+local HitboxVisibleToggle = MainTab:CreateToggle({
+    Name = "Mostrar Hitbox",
+    CurrentValue = HitboxSettings.Visible,
+    Flag = "Hitbox_Visible",
+    Callback = function(Value)
+        HitboxSettings.Visible = Value
+        if HitboxSettings.Enabled then
+            EnableHitboxExpansion()
+        end
+        print("[Expand Hitbox] Visibilidade:", Value and "Ativada" or "Desativada")
+    end
+})
+
+local HitboxColorPicker = MainTab:CreateColorPicker({
+    Name = "Cor da Hitbox",
+    Color = HitboxSettings.Color,
+    Flag = "Hitbox_Color",
+    Callback = function(Value)
+        HitboxSettings.Color = Value
+        if HitboxSettings.Enabled then
+            EnableHitboxExpansion()
+        end
+        print("[Expand Hitbox] Cor ajustada para:", Value)
+    end
+})
+
 -- Aba Configurações
 local ConfigTab = Window:CreateTab("Configurações", 4483362458)
 local ConfigSection = ConfigTab:CreateSection("Gerenciar Configurações")
@@ -414,10 +643,10 @@ local SaveConfigButton = ConfigTab:CreateButton({
         local configData = {
             AimbotSettings = AimbotSettings,
             ESPSettings = ESPSettings,
-            HitboxSettings = HitboxSettings, -- Adicionado HitboxSettings
+            HitboxSettings = HitboxSettings,
             AimbotEnabled = AimbotEnabled,
             ESPEnabled = ESPEnabled,
-            HitboxEnabled = HitboxSettings.Enabled, -- Adicionado estado do Hitbox
+            HitboxEnabled = HitboxSettings.Enabled,
             AimbotKey = AimbotKey.Name,
             AimbotMode = AimbotMode
         }
@@ -471,16 +700,16 @@ local LoadConfigButton = ConfigTab:CreateButton({
 
         AimbotSettings = mergeTables(AimbotSettings, configData.AimbotSettings or {})
         ESPSettings = mergeTables(ESPSettings, configData.ESPSettings or {})
-        HitboxSettings = mergeTables(HitboxSettings, configData.HitboxSettings or {}) -- Adicionado HitboxSettings
+        HitboxSettings = mergeTables(HitboxSettings, configData.HitboxSettings or {})
         AimbotEnabled = configData.AimbotEnabled or AimbotEnabled
         ESPEnabled = configData.ESPEnabled or ESPEnabled
-        HitboxSettings.Enabled = configData.HitboxEnabled or HitboxSettings.Enabled -- Adicionado estado do Hitbox
+        HitboxSettings.Enabled = configData.HitboxEnabled or HitboxSettings.Enabled
         AimbotKey = getValidKeybind(configData.AimbotKey) or AimbotKey
         AimbotMode = configData.AimbotMode or AimbotMode
 
         AimbotToggle:Set(AimbotEnabled)
         ESPToggle:Set(ESPEnabled)
-        HitboxToggle:Set(HitboxSettings.Enabled) -- Atualiza o toggle do Hitbox
+        HitboxToggle:Set(HitboxSettings.Enabled)
         AimbotKeybind:Set(AimbotKey.Name)
         AimbotModeDropdown:Set(AimbotMode)
         AimbotPartDropdown:Set(AimbotSettings.AimPart)
@@ -490,8 +719,10 @@ local LoadConfigButton = ConfigTab:CreateButton({
         AimbotVisibleCheckToggle:Set(AimbotSettings.VisibleCheck)
         AimbotFOVVisibleToggle:Set(AimbotSettings.FOVVisible)
         ESPTeamCheckToggle:Set(ESPSettings.TeamCheck)
-        HitboxSizeSlider:Set(HitboxSettings.Size) -- Atualiza o slider do Hitbox
-        HitboxTeamCheckToggle:Set(HitboxSettings.TeamCheck) -- Atualiza o TeamCheck do Hitbox
+        HitboxSizeSlider:Set(HitboxSettings.Size)
+        HitboxTeamCheckToggle:Set(HitboxSettings.TeamCheck)
+        HitboxVisibleToggle:Set(HitboxSettings.Visible)
+        HitboxColorPicker:Set(HitboxSettings.Color)
 
         ProfileDropdown:Set(profileName)
 
@@ -550,191 +781,6 @@ ConfigSection:CreateDropdown({
     end
 })
 
-local function SetupESP(player)
-    if not player or not player.Character then return end
-    if ESPSettings.TeamCheck and player.Team == LocalPlayer.Team then return end
-
-    local function createHighlight(character)
-        if Resources.ESPObjects[player] and Resources.ESPObjects[player].Parent then
-            Resources.ESPObjects[player]:Destroy()
-        end
-        local highlight = Instance.new("Highlight")
-        highlight.Adornee = character
-        highlight.Parent = game.CoreGui
-        highlight.FillColor = ESPSettings.FillColor
-        highlight.OutlineColor = ESPSettings.OutlineColor
-        highlight.FillTransparency = ESPSettings.FillTransparency
-        highlight.OutlineTransparency = ESPSettings.OutlineTransparency
-        Resources.ESPObjects[player] = highlight
-    end
-
-    table.insert(Resources.Connections, player.CharacterAdded:Connect(function(character)
-        task.wait(1)
-        if ESPEnabled and (not ESPSettings.TeamCheck or player.Team ~= LocalPlayer.Team) then
-            createHighlight(character)
-        end
-    end))
-    createHighlight(player.Character)
-end
-
-function EnableESP()
-    DisableESP()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then SetupESP(player) end
-    end
-    table.insert(Resources.Connections, Players.PlayerAdded:Connect(function(player)
-        if player ~= LocalPlayer then SetupESP(player) end
-    end))
-end
-
-function DisableESP()
-    for player, highlight in pairs(Resources.ESPObjects) do
-        if highlight and highlight.Parent then highlight:Destroy() end
-    end
-    Resources.ESPObjects = {}
-end
-
-local function IsPlayerValid(player)
-    if player == LocalPlayer then return false end
-    if not player.Character then return false end
-    
-    local humanoid = player.Character:FindFirstChild("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then return false end
-    
-    local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
-    if not targetPart then 
-        print("[Aimbot] Parte do corpo não encontrada:", AimbotSettings.AimPart)
-        return false 
-    end
-    
-    if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then return false end
-    if AimbotSettings.VisibleCheck then
-        local raycastParams = RaycastParams.new()
-        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
-        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-        local origin = Camera.CFrame.Position
-        local direction = (targetPart.Position - origin)
-        local raycastResult = workspace:Raycast(origin, direction, raycastParams)
-        if raycastResult and raycastResult.Instance then
-            local hitModel = raycastResult.Instance:FindFirstAncestorOfClass("Model")
-            if hitModel ~= player.Character then return false end
-        end
-    end
-    
-    return true
-end
-
-local function GetClosestPlayerToMouse()
-    local closestPlayer = nil
-    local shortestDistance = AimbotSettings.FOV
-    local mousePos = Vector2.new(Mouse.X, Mouse.Y)
-    
-    for _, player in pairs(Players:GetPlayers()) do
-        if IsPlayerValid(player) then
-            local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
-            if targetPart then
-                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                if onScreen then
-                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                    if distance < shortestDistance then
-                        closestPlayer = player
-                        shortestDistance = distance
-                        local currentTime = tick()
-                        if currentTime - lastTargetLogTime >= targetLogCooldown then
-                            print("[Aimbot] Alvo encontrado:", player.Name, "Distância:", distance)
-                            lastTargetLogTime = currentTime
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    return closestPlayer
-end
-
-function AimbotUpdate()
-    UpdateFOVCircle()
-    
-    if not AimbotEnabled then return end
-    
-    if AimbotMode == "Hold" and not UserInputService:IsKeyDown(AimbotKey) then
-        Resources.Aimbot.Active = false
-        Resources.Aimbot.Target = nil
-        return
-    end
-    
-    if not Resources.Aimbot.Active then return end
-    
-    local target = Resources.Aimbot.Target
-    if not target or not IsPlayerValid(target) then
-        target = GetClosestPlayerToMouse()
-        Resources.Aimbot.Target = target
-    end
-    
-    if target and target.Character then
-        local targetPart = target.Character:FindFirstChild(AimbotSettings.AimPart)
-        if targetPart then
-            local currentCFrame = Camera.CFrame
-            local targetPosition = targetPart.Position
-            local targetCFrame = CFrame.new(currentCFrame.Position, targetPosition)
-            Camera.CameraType = Enum.CameraType.Custom
-            Camera.CFrame = currentCFrame:Lerp(targetCFrame, 1 - AimbotSettings.Smoothness)
-            print("[Aimbot] Câmera ajustada para alvo:", target.Name)
-        end
-    end
-end
-
--- Funções do Expand Hitbox
-local function ExpandPlayerHitbox(player)
-    if not player or player == LocalPlayer then return end
-    if HitboxSettings.TeamCheck and player.Team == LocalPlayer.Team then return end
-    if not player.Character then return end
-
-    local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
-    if humanoidRootPart then
-        humanoidRootPart.Size = Vector3.new(HitboxSettings.Size, HitboxSettings.Size, HitboxSettings.Size)
-        humanoidRootPart.Transparency = HitboxSettings.Transparency
-        humanoidRootPart.CanCollide = false
-        print("[Expand Hitbox] Hitbox expandida para:", player.Name)
-    end
-end
-
-local function RestorePlayerHitbox(player)
-    if not player or not player.Character then return end
-    local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
-    if humanoidRootPart then
-        humanoidRootPart.Size = Vector3.new(2, 2, 1)
-        humanoidRootPart.Transparency = 0
-        humanoidRootPart.CanCollide = true
-    end
-end
-
-local function EnableHitboxExpansion()
-    if not HitboxSettings.Enabled then
-        for _, player in pairs(Players:GetPlayers()) do
-            RestorePlayerHitbox(player)
-        end
-        return
-    end
-    for _, player in pairs(Players:GetPlayers()) do
-        ExpandPlayerHitbox(player)
-    end
-end
-
-local function SetupHitbox(player)
-    if not player or player == LocalPlayer then return end
-    table.insert(Resources.Connections, player.CharacterAdded:Connect(function(character)
-        task.wait(1)
-        if HitboxSettings.Enabled then
-            ExpandPlayerHitbox(player)
-        end
-    end))
-    if HitboxSettings.Enabled then
-        ExpandPlayerHitbox(player)
-    end
-end
-
 -- Eventos
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not AimbotEnabled then return end
@@ -765,6 +811,7 @@ Players.PlayerAdded:Connect(function(player)
     if player ~= LocalPlayer then 
         SetupESP(player)
         SetupHitbox(player)
+        print("[PlayerAdded] ESP e Hitbox configurados para novo jogador:", player.Name)
     end
 end)
 
