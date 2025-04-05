@@ -121,7 +121,7 @@ local ESPToggle = MainTab:CreateToggle({
 local DestroyButton = MainTab:CreateButton({
     Name = "Destruir Interface",
     Callback = function()
-        Window:Destroy()
+        Rayfield:Destroy()
         print("Interface destruída.")
     end
 })
