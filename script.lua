@@ -1,8 +1,8 @@
 -- Correções aplicadas:
 -- 1. Substituído movimento do mouse por manipulação da câmera
--- 2. Reduzidos logs excessivos
--- 3. Mantido botão Rejoin e adicionado teste de câmera
--- 4. Simplificada validação de alvos para testes
+-- 2. Adicionado delay nas logs de alvo para evitar lag
+-- 3. Mantido botão Rejoin e teste de câmera
+-- 4. Adicionada aba de Configurações para salvar e carregar perfis
 
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
@@ -63,10 +63,10 @@ local ESPSettings = {
 }
 
 local AimbotSettings = {
-    Smoothness = 0.5, -- Controla a velocidade da interpolação da câmera
-    FOV = 400, -- Aumentado para facilitar testes
-    TeamCheck = false, -- Desativado para testes
-    VisibleCheck = false, -- Desativado para testes
+    Smoothness = 0.5,
+    FOV = 400,
+    TeamCheck = false,
+    VisibleCheck = false,
     AimPart = "Head",
     FOVVisible = true,
     DrawFOVColor = Color3.fromRGB(255, 255, 255)
@@ -80,6 +80,10 @@ local TeleportService = game:GetService("TeleportService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
+
+-- Controle de delay para logs
+local lastTargetLogTime = 0
+local targetLogCooldown = 1 -- Delay de 1 segundo entre logs de alvo
 
 -- Elementos visuais do Aimbot
 local FOVCircle = Drawing.new("Circle")
@@ -109,6 +113,7 @@ local function getValidKeybind(key)
     return Enum.KeyCode.E
 end
 
+-- Aba Funções
 local MainTab = Window:CreateTab("Funções", 4483345998)
 local ESPSection = MainTab:CreateSection("ESP")
 
@@ -152,7 +157,6 @@ local RejoinButton = MainTab:CreateButton({
     end
 })
 
--- Botão de teste para rotação da câmera
 local TestCameraButton = MainTab:CreateButton({
     Name = "Testar Câmera",
     Callback = function()
@@ -188,7 +192,7 @@ local AimbotKeybind = MainTab:CreateKeybind({
     Name = "Tecla do Aimbot",
     CurrentKeybind = "E",
     HoldToInteract = false,
-    W = "AimbotKeybind",
+    Flag = "AimbotKeybind",
     Callback = function(Keybind)
         local newKey = getValidKeybind(Keybind)
         AimbotKey = newKey
@@ -274,6 +278,147 @@ local AimbotFOVVisibleToggle = MainTab:CreateToggle({
         AimbotSettings.FOVVisible = Value
         FOVCircle.Visible = AimbotEnabled and Value
         print("[Aimbot] Círculo FOV:", Value and "Visível" or "Oculto")
+    end
+})
+
+-- Nova Aba de Configurações
+local ConfigTab = Window:CreateTab("Configurações", 4483362458)
+local ConfigSection = ConfigTab:CreateSection("Gerenciar Configurações")
+
+-- Função para obter a lista de perfis salvos
+local function GetSavedProfiles()
+    local configFolder = "PintoHubConfig"
+    if not isfolder(configFolder) then
+        return {"Nenhum perfil encontrado"}
+    end
+    local files = listfiles(configFolder)
+    local profiles = {}
+    for _, file in ipairs(files) do
+        local profileName = file:match(configFolder .. "/(.+)%.json$")
+        if profileName then
+            table.insert(profiles, profileName)
+        end
+    end
+    if #profiles == 0 then
+        return {"Nenhum perfil encontrado"}
+    end
+    return profiles
+end
+
+-- Campo de texto para nome do perfil
+local ProfileNameInput = ConfigTab:CreateInput({
+    Name = "Nome do Perfil",
+    Info = "Digite o nome do perfil para salvar ou carregar",
+    PlaceholderText = "MeuPerfil",
+    CurrentValue = "",
+    Flag = "ProfileName",
+    Callback = function(Value)
+        print("[Config] Nome do perfil definido para:", Value)
+    end
+})
+
+-- Dropdown para listar perfis salvos
+local ProfileDropdown = ConfigTab:CreateDropdown({
+    Name = "Perfis Salvos",
+    Options = GetSavedProfiles(),
+    CurrentOption = "Nenhum perfil encontrado",
+    Flag = "ProfileDropdown",
+    Callback = function(Option)
+        ProfileNameInput:Set(Option) -- Atualiza o campo de texto com o perfil selecionado
+        print("[Config] Perfil selecionado:", Option)
+    end
+})
+
+-- Botão para salvar configurações
+local SaveConfigButton = ConfigTab:CreateButton({
+    Name = "Salvar Configurações",
+    Callback = function()
+        local profileName = ProfileNameInput.CurrentValue
+        if profileName == "" or profileName == "Nenhum perfil encontrado" then
+            Rayfield:Notify({
+                Title = "Erro",
+                Content = "Por favor, insira um nome válido para o perfil!",
+                Duration = 3,
+                Image = 4483362458
+            })
+            return
+        end
+
+        -- Salva as configurações atuais
+        local configData = {
+            AimbotSettings = AimbotSettings,
+            ESPSettings = ESPSettings,
+            AimbotEnabled = AimbotEnabled,
+            ESPEnabled = ESPEnabled,
+            AimbotKey = AimbotKey.Name,
+            AimbotMode = AimbotMode
+        }
+
+        local configFolder = "PintoHubConfig"
+        if not isfolder(configFolder) then
+            makefolder(configFolder)
+        end
+
+        writefile(configFolder .. "/" .. profileName .. ".json", game:GetService("HttpService"):JSONEncode(configData))
+        Rayfield:Notify({
+            Title = "Sucesso",
+            Content = "Configurações salvas como: " .. profileName,
+            Duration = 3,
+            Image = 4483362458
+        })
+
+        -- Atualiza o dropdown com os perfis salvos
+        ProfileDropdown:Refresh(GetSavedProfiles(), profileName)
+    end
+})
+
+-- Botão para carregar configurações
+local LoadConfigButton = ConfigTab:CreateButton({
+    Name = "Carregar Configurações",
+    Callback = function()
+        local profileName = ProfileNameInput.CurrentValue
+        local configFolder = "PintoHubConfig"
+        local filePath = configFolder .. "/" .. profileName .. ".json"
+
+        if not isfile(filePath) then
+            Rayfield:Notify({
+                Title = "Erro",
+                Content = "Perfil não encontrado: " .. profileName,
+                Duration = 3,
+                Image = 4483362458
+            })
+            return
+        end
+
+        local configData = game:GetService("HttpService"):JSONDecode(readfile(filePath))
+
+        -- Carrega as configurações
+        AimbotSettings = configData.AimbotSettings or AimbotSettings
+        ESPSettings = configData.ESPSettings or ESPSettings
+        AimbotEnabled = configData.AimbotEnabled or AimbotEnabled
+        ESPEnabled = configData.ESPEnabled or ESPEnabled
+        AimbotKey = Enum.KeyCode[configData.AimbotKey] or AimbotKey
+        AimbotMode = configData.AimbotMode or AimbotMode
+
+        -- Atualiza os elementos da interface
+        AimbotToggle:Set(AimbotEnabled)
+        ESPToggle:Set(ESPEnabled)
+        AimbotKeybind:Set(AimbotKey.Name)
+        AimbotModeDropdown:Set(AimbotMode)
+        AimbotPartDropdown:Set(AimbotSettings.AimPart)
+        AimbotFOVSlider:Set(AimbotSettings.FOV)
+        AimbotSmoothnessSlider:Set(AimbotSettings.Smoothness * 10)
+        AimbotTeamCheckToggle:Set(AimbotSettings.TeamCheck)
+        AimbotVisibleCheckToggle:Set(AimbotSettings.VisibleCheck)
+        AimbotFOVVisibleToggle:Set(AimbotSettings.FOVVisible)
+        ESPTeamCheckToggle:Set(ESPSettings.TeamCheck)
+
+        Rayfield:Notify({
+            Title = "Sucesso",
+            Content = "Configurações carregadas de: " .. profileName,
+            Duration = 3,
+            Image = 4483362458
+        })
     end
 })
 
@@ -366,7 +511,11 @@ local function GetClosestPlayerToMouse()
                     if distance < shortestDistance then
                         closestPlayer = player
                         shortestDistance = distance
-                        print("[Aimbot] Alvo encontrado:", player.Name, "Distância:", distance)
+                        local currentTime = tick()
+                        if currentTime - lastTargetLogTime >= targetLogCooldown then
+                            print("[Aimbot] Alvo encontrado:", player.Name, "Distância:", distance)
+                            lastTargetLogTime = currentTime
+                        end
                     end
                 end
             end
@@ -401,7 +550,7 @@ function AimbotUpdate()
             local currentCFrame = Camera.CFrame
             local targetPosition = targetPart.Position
             local targetCFrame = CFrame.new(currentCFrame.Position, targetPosition)
-            -- Interpolação suave da câmera
+            Camera.CameraType = Enum.CameraType.Custom
             Camera.CFrame = currentCFrame:Lerp(targetCFrame, 1 - AimbotSettings.Smoothness)
             print("[Aimbot] Câmera ajustada para alvo:", target.Name)
         end
