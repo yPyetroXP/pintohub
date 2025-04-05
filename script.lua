@@ -350,7 +350,7 @@ local SaveConfigButton = ConfigTab:CreateButton({
             ESPSettings = ESPSettings,
             AimbotEnabled = AimbotEnabled,
             ESPEnabled = ESPEnabled,
-            AimbotKey = AimbotKey.Name,
+            AimbotKey = tostring(AimbotKey.Name),
             AimbotMode = AimbotMode
         }
 
@@ -359,20 +359,33 @@ local SaveConfigButton = ConfigTab:CreateButton({
             makefolder(configFolder)
         end
 
-        writefile(configFolder .. "/" .. profileName .. ".json", game:GetService("HttpService"):JSONEncode(configData))
-        Rayfield:Notify({
-            Title = "Sucesso",
-            Content = "Configurações salvas como: " .. profileName,
-            Duration = 3,
-            Image = 4483362458
-        })
+        local success, errorMsg = pcall(function()
+            writefile(configFolder .. "/" .. profileName .. ".json", game:GetService("HttpService"):JSONEncode(configData))
+        end)
 
-        -- Atualiza o dropdown com os perfis salvos
-        ProfileDropdown:Refresh(GetSavedProfiles(), profileName)
+        if success then
+            Rayfield:Notify({
+                Title = "Sucesso",
+                Content = "Configurações salvas como: " .. profileName,
+                Duration = 3,
+                Image = 4483362458
+            })
+            
+            -- Atualiza o dropdown com os perfis salvos
+            local savedProfiles = GetSavedProfiles()
+            ProfileDropdown:Refresh(savedProfiles)
+            ProfileDropdown:Set(profileName)
+        else
+            Rayfield:Notify({
+                Title = "Erro ao Salvar",
+                Content = "Não foi possível salvar o perfil: " .. (errorMsg or "Erro desconhecido"),
+                Duration = 3,
+                Image = 4483362458
+            })
+        end
     end
 })
 
--- Botão para carregar configurações
 local LoadConfigButton = ConfigTab:CreateButton({
     Name = "Carregar Configurações",
     Callback = function()
@@ -390,28 +403,95 @@ local LoadConfigButton = ConfigTab:CreateButton({
             return
         end
 
-        local configData = game:GetService("HttpService"):JSONDecode(readfile(filePath))
+        local success, configData = pcall(function()
+            return game:GetService("HttpService"):JSONDecode(readfile(filePath))
+        end)
 
-        -- Carrega as configurações
-        AimbotSettings = configData.AimbotSettings or AimbotSettings
-        ESPSettings = configData.ESPSettings or ESPSettings
-        AimbotEnabled = configData.AimbotEnabled or AimbotEnabled
-        ESPEnabled = configData.ESPEnabled or ESPEnabled
-        AimbotKey = Enum.KeyCode[configData.AimbotKey] or AimbotKey
-        AimbotMode = configData.AimbotMode or AimbotMode
+        if not success then
+            Rayfield:Notify({
+                Title = "Erro",
+                Content = "Arquivo de configuração corrompido ou inválido",
+                Duration = 3,
+                Image = 4483362458
+            })
+            return
+        end
 
-        -- Atualiza os elementos da interface
-        AimbotToggle:Set(AimbotEnabled)
-        ESPToggle:Set(ESPEnabled)
-        AimbotKeybind:Set(AimbotKey.Name)
-        AimbotModeDropdown:Set(AimbotMode)
-        AimbotPartDropdown:Set(AimbotSettings.AimPart)
-        AimbotFOVSlider:Set(AimbotSettings.FOV)
-        AimbotSmoothnessSlider:Set(AimbotSettings.Smoothness * 10)
-        AimbotTeamCheckToggle:Set(AimbotSettings.TeamCheck)
-        AimbotVisibleCheckToggle:Set(AimbotSettings.VisibleCheck)
-        AimbotFOVVisibleToggle:Set(AimbotSettings.FOVVisible)
-        ESPTeamCheckToggle:Set(ESPSettings.TeamCheck)
+        -- Validação básica dos dados carregados
+        if type(configData) ~= "table" then
+            Rayfield:Notify({
+                Title = "Erro",
+                Content = "Formato de configuração inválido",
+                Duration = 3,
+                Image = 4483362458
+            })
+            return
+        end
+
+        -- Carrega as configurações com verificações de segurança
+        if type(configData.AimbotSettings) == "table" then
+            -- Copiar valores individuais para evitar referências quebradas
+            for key, value in pairs(configData.AimbotSettings) do
+                AimbotSettings[key] = value
+            end
+        end
+        
+        if type(configData.ESPSettings) == "table" then
+            for key, value in pairs(configData.ESPSettings) do
+                ESPSettings[key] = value
+            end
+        end
+        
+        -- Valores básicos com validação de tipo
+        AimbotEnabled = type(configData.AimbotEnabled) == "boolean" and configData.AimbotEnabled or AimbotEnabled
+        ESPEnabled = type(configData.ESPEnabled) == "boolean" and configData.ESPEnabled or ESPEnabled
+        AimbotMode = type(configData.AimbotMode) == "string" and configData.AimbotMode or AimbotMode
+        
+        -- Processamento seguro da tecla do aimbot
+        if type(configData.AimbotKey) == "string" then
+            local keyEnum = Enum.KeyCode[configData.AimbotKey]
+            if keyEnum then
+                AimbotKey = keyEnum
+            end
+        end
+
+        -- Atualiza os elementos da interface com verificações de nil
+        if AimbotToggle then AimbotToggle:Set(AimbotEnabled) end
+        if ESPToggle then ESPToggle:Set(ESPEnabled) end
+        if AimbotKeybind then AimbotKeybind:Set(AimbotKey.Name) end
+        if AimbotModeDropdown then AimbotModeDropdown:Set(AimbotMode) end
+        
+        if AimbotSettings.AimPart and AimbotPartDropdown then 
+            AimbotPartDropdown:Set(AimbotSettings.AimPart) 
+        end
+        
+        if AimbotSettings.FOV and AimbotFOVSlider then 
+            AimbotFOVSlider:Set(AimbotSettings.FOV) 
+        end
+        
+        if AimbotSettings.Smoothness and AimbotSmoothnessSlider then 
+            AimbotSmoothnessSlider:Set(AimbotSettings.Smoothness * 10) 
+        end
+        
+        if AimbotSettings.TeamCheck ~= nil and AimbotTeamCheckToggle then 
+            AimbotTeamCheckToggle:Set(AimbotSettings.TeamCheck) 
+        end
+        
+        if AimbotSettings.VisibleCheck ~= nil and AimbotVisibleCheckToggle then 
+            AimbotVisibleCheckToggle:Set(AimbotSettings.VisibleCheck) 
+        end
+        
+        if AimbotSettings.FOVVisible ~= nil and AimbotFOVVisibleToggle then 
+            AimbotFOVVisibleToggle:Set(AimbotSettings.FOVVisible) 
+        end
+        
+        if ESPSettings.TeamCheck ~= nil and ESPTeamCheckToggle then 
+            ESPTeamCheckToggle:Set(ESPSettings.TeamCheck) 
+        end
+
+        -- Atualiza o FOV Circle com as novas configurações
+        FOVCircle.Radius = AimbotSettings.FOV
+        FOVCircle.Visible = AimbotEnabled and AimbotSettings.FOVVisible
 
         Rayfield:Notify({
             Title = "Sucesso",
