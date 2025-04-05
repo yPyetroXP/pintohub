@@ -1,9 +1,3 @@
--- Correções aplicadas:
--- 1. Substituído movimento do mouse por manipulação da câmera
--- 2. Adicionado delay nas logs de alvo para evitar lag
--- 3. Mantido botão Rejoin e teste de câmera
--- 4. Adicionada aba de Configurações para salvar e carregar perfis
-
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 end)
@@ -38,13 +32,19 @@ local function CleanupResources()
     end
     Resources.Aimbot.Active = false
     Resources.Aimbot.Target = nil
+    -- Restaurar hitboxes ao limpar recursos
+    if HitboxSettings.Enabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            RestorePlayerHitbox(player)
+        end
+    end
 end
 
 local Window = Rayfield:CreateWindow({
     Name = "Pinto Hub",
     LoadingTitle = "Pinto Hub",
     LoadingSubtitle = "by PintoTeam",
-    ConfigurationSaving = {Enabled = true, FolderName = "PintoHubConfig", FileName = "PintoHubSettings"},
+    ConfigurationSaving = {Enabled = false, FolderName = "PintoHubConfig", FileName = "PintoHubSettings"},
     Discord = {Enabled = false, Invite = "", RememberJoins = true},
     KeySystem = false
 })
@@ -72,6 +72,14 @@ local AimbotSettings = {
     DrawFOVColor = Color3.fromRGB(255, 255, 255)
 }
 
+-- Configurações do Expand Hitbox
+local HitboxSettings = {
+    Enabled = false,
+    Size = 10,
+    TeamCheck = true,
+    Transparency = 1
+}
+
 -- Serviços
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -83,7 +91,7 @@ local Mouse = LocalPlayer:GetMouse()
 
 -- Controle de delay para logs
 local lastTargetLogTime = 0
-local targetLogCooldown = 1 -- Delay de 1 segundo entre logs de alvo
+local targetLogCooldown = 1
 
 -- Elementos visuais do Aimbot
 local FOVCircle = Drawing.new("Circle")
@@ -111,6 +119,26 @@ local function getValidKeybind(key)
         return key
     end
     return Enum.KeyCode.E
+end
+
+local function mergeTables(default, loaded)
+    local result = {}
+    for k, v in pairs(default) do
+        if loaded[k] ~= nil then
+            if typeof(v) == "table" then
+                result[k] = mergeTables(v, loaded[k])
+            else
+                result[k] = loaded[k]
+            end
+        else
+            result[k] = v
+        end
+    end
+    return result
+end
+
+local function sanitizeProfileName(name)
+    return name:gsub("[^%w%s]", ""):sub(1, 50)
 end
 
 -- Aba Funções
@@ -281,11 +309,53 @@ local AimbotFOVVisibleToggle = MainTab:CreateToggle({
     end
 })
 
--- Nova Aba de Configurações
+-- Seção Expand Hitbox
+local HitboxSection = MainTab:CreateSection("Expand Hitbox")
+
+local HitboxToggle = MainTab:CreateToggle({
+    Name = "Ativar Expand Hitbox",
+    CurrentValue = false,
+    Flag = "Hitbox_Toggle",
+    Callback = function(Value)
+        HitboxSettings.Enabled = Value
+        EnableHitboxExpansion()
+        print("[Expand Hitbox] Estado:", Value and "Ativado" or "Desativado")
+    end
+})
+
+local HitboxSizeSlider = MainTab:CreateSlider({
+    Name = "Tamanho da Hitbox",
+    Range = {5, 20},
+    Increment = 1,
+    Suffix = " studs",
+    CurrentValue = HitboxSettings.Size,
+    Flag = "Hitbox_Size",
+    Callback = function(Value)
+        HitboxSettings.Size = Value
+        if HitboxSettings.Enabled then
+            EnableHitboxExpansion()
+        end
+        print("[Expand Hitbox] Tamanho ajustado para:", Value)
+    end
+})
+
+local HitboxTeamCheckToggle = MainTab:CreateToggle({
+    Name = "Check Team",
+    CurrentValue = HitboxSettings.TeamCheck,
+    Flag = "Hitbox_TeamCheck",
+    Callback = function(Value)
+        HitboxSettings.TeamCheck = Value
+        if HitboxSettings.Enabled then
+            EnableHitboxExpansion()
+        end
+        print("[Expand Hitbox] Check Team:", Value and "Ativado" or "Desativado")
+    end
+})
+
+-- Aba Configurações
 local ConfigTab = Window:CreateTab("Configurações", 4483362458)
 local ConfigSection = ConfigTab:CreateSection("Gerenciar Configurações")
 
--- Função para obter a lista de perfis salvos
 local function GetSavedProfiles()
     local configFolder = "PintoHubConfig"
     if not isfolder(configFolder) then
@@ -305,7 +375,6 @@ local function GetSavedProfiles()
     return profiles
 end
 
--- Campo de texto para nome do perfil
 local ProfileNameInput = ConfigTab:CreateInput({
     Name = "Nome do Perfil",
     Info = "Digite o nome do perfil para salvar ou carregar",
@@ -317,23 +386,21 @@ local ProfileNameInput = ConfigTab:CreateInput({
     end
 })
 
--- Dropdown para listar perfis salvos
 local ProfileDropdown = ConfigTab:CreateDropdown({
     Name = "Perfis Salvos",
     Options = GetSavedProfiles(),
     CurrentOption = "Nenhum perfil encontrado",
     Flag = "ProfileDropdown",
     Callback = function(Option)
-        ProfileNameInput:Set(Option) -- Atualiza o campo de texto com o perfil selecionado
+        ProfileNameInput:Set(Option)
         print("[Config] Perfil selecionado:", Option)
     end
 })
 
--- Botão para salvar configurações
 local SaveConfigButton = ConfigTab:CreateButton({
     Name = "Salvar Configurações",
     Callback = function()
-        local profileName = ProfileNameInput.CurrentValue
+        local profileName = sanitizeProfileName(ProfileNameInput.CurrentValue)
         if profileName == "" or profileName == "Nenhum perfil encontrado" then
             Rayfield:Notify({
                 Title = "Erro",
@@ -344,12 +411,13 @@ local SaveConfigButton = ConfigTab:CreateButton({
             return
         end
 
-        -- Salva as configurações atuais
         local configData = {
             AimbotSettings = AimbotSettings,
             ESPSettings = ESPSettings,
+            HitboxSettings = HitboxSettings, -- Adicionado HitboxSettings
             AimbotEnabled = AimbotEnabled,
             ESPEnabled = ESPEnabled,
+            HitboxEnabled = HitboxSettings.Enabled, -- Adicionado estado do Hitbox
             AimbotKey = AimbotKey.Name,
             AimbotMode = AimbotMode
         }
@@ -367,16 +435,14 @@ local SaveConfigButton = ConfigTab:CreateButton({
             Image = 4483362458
         })
 
-        -- Atualiza o dropdown com os perfis salvos
         ProfileDropdown:Refresh(GetSavedProfiles(), profileName)
     end
 })
 
--- Botão para carregar configurações
 local LoadConfigButton = ConfigTab:CreateButton({
     Name = "Carregar Configurações",
     Callback = function()
-        local profileName = ProfileNameInput.CurrentValue
+        local profileName = sanitizeProfileName(ProfileNameInput.CurrentValue)
         local configFolder = "PintoHubConfig"
         local filePath = configFolder .. "/" .. profileName .. ".json"
 
@@ -390,19 +456,31 @@ local LoadConfigButton = ConfigTab:CreateButton({
             return
         end
 
-        local configData = game:GetService("HttpService"):JSONDecode(readfile(filePath))
+        local success, configData = pcall(function()
+            return game:GetService("HttpService"):JSONDecode(readfile(filePath))
+        end)
+        if not success then
+            Rayfield:Notify({
+                Title = "Erro",
+                Content = "Falha ao carregar o perfil: " .. profileName .. " (arquivo corrompido)",
+                Duration = 3,
+                Image = 4483362458
+            })
+            return
+        end
 
-        -- Carrega as configurações
-        AimbotSettings = configData.AimbotSettings or AimbotSettings
-        ESPSettings = configData.ESPSettings or ESPSettings
+        AimbotSettings = mergeTables(AimbotSettings, configData.AimbotSettings or {})
+        ESPSettings = mergeTables(ESPSettings, configData.ESPSettings or {})
+        HitboxSettings = mergeTables(HitboxSettings, configData.HitboxSettings or {}) -- Adicionado HitboxSettings
         AimbotEnabled = configData.AimbotEnabled or AimbotEnabled
         ESPEnabled = configData.ESPEnabled or ESPEnabled
-        AimbotKey = Enum.KeyCode[configData.AimbotKey] or AimbotKey
+        HitboxSettings.Enabled = configData.HitboxEnabled or HitboxSettings.Enabled -- Adicionado estado do Hitbox
+        AimbotKey = getValidKeybind(configData.AimbotKey) or AimbotKey
         AimbotMode = configData.AimbotMode or AimbotMode
 
-        -- Atualiza os elementos da interface
         AimbotToggle:Set(AimbotEnabled)
         ESPToggle:Set(ESPEnabled)
+        HitboxToggle:Set(HitboxSettings.Enabled) -- Atualiza o toggle do Hitbox
         AimbotKeybind:Set(AimbotKey.Name)
         AimbotModeDropdown:Set(AimbotMode)
         AimbotPartDropdown:Set(AimbotSettings.AimPart)
@@ -412,6 +490,10 @@ local LoadConfigButton = ConfigTab:CreateButton({
         AimbotVisibleCheckToggle:Set(AimbotSettings.VisibleCheck)
         AimbotFOVVisibleToggle:Set(AimbotSettings.FOVVisible)
         ESPTeamCheckToggle:Set(ESPSettings.TeamCheck)
+        HitboxSizeSlider:Set(HitboxSettings.Size) -- Atualiza o slider do Hitbox
+        HitboxTeamCheckToggle:Set(HitboxSettings.TeamCheck) -- Atualiza o TeamCheck do Hitbox
+
+        ProfileDropdown:Set(profileName)
 
         Rayfield:Notify({
             Title = "Sucesso",
@@ -419,6 +501,31 @@ local LoadConfigButton = ConfigTab:CreateButton({
             Duration = 3,
             Image = 4483362458
         })
+    end
+})
+
+local DeleteConfigButton = ConfigTab:CreateButton({
+    Name = "Deletar Perfil",
+    Callback = function()
+        local profileName = sanitizeProfileName(ProfileNameInput.CurrentValue)
+        local filePath = "PintoHubConfig/" .. profileName .. ".json"
+        if isfile(filePath) then
+            delfile(filePath)
+            Rayfield:Notify({
+                Title = "Sucesso",
+                Content = "Perfil deletado: " .. profileName,
+                Duration = 3,
+                Image = 4483362458
+            })
+            ProfileDropdown:Refresh(GetSavedProfiles(), "Nenhum perfil encontrado")
+        else
+            Rayfield:Notify({
+                Title = "Erro",
+                Content = "Perfil não encontrado: " .. profileName,
+                Duration = 3,
+                Image = 4483362458
+            })
+        end
     end
 })
 
@@ -578,6 +685,57 @@ function AimbotUpdate()
     end
 end
 
+-- Funções do Expand Hitbox
+local function ExpandPlayerHitbox(player)
+    if not player or player == LocalPlayer then return end
+    if HitboxSettings.TeamCheck and player.Team == LocalPlayer.Team then return end
+    if not player.Character then return end
+
+    local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
+    if humanoidRootPart then
+        humanoidRootPart.Size = Vector3.new(HitboxSettings.Size, HitboxSettings.Size, HitboxSettings.Size)
+        humanoidRootPart.Transparency = HitboxSettings.Transparency
+        humanoidRootPart.CanCollide = false
+        print("[Expand Hitbox] Hitbox expandida para:", player.Name)
+    end
+end
+
+local function RestorePlayerHitbox(player)
+    if not player or not player.Character then return end
+    local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
+    if humanoidRootPart then
+        humanoidRootPart.Size = Vector3.new(2, 2, 1)
+        humanoidRootPart.Transparency = 0
+        humanoidRootPart.CanCollide = true
+    end
+end
+
+local function EnableHitboxExpansion()
+    if not HitboxSettings.Enabled then
+        for _, player in pairs(Players:GetPlayers()) do
+            RestorePlayerHitbox(player)
+        end
+        return
+    end
+    for _, player in pairs(Players:GetPlayers()) do
+        ExpandPlayerHitbox(player)
+    end
+end
+
+local function SetupHitbox(player)
+    if not player or player == LocalPlayer then return end
+    table.insert(Resources.Connections, player.CharacterAdded:Connect(function(character)
+        task.wait(1)
+        if HitboxSettings.Enabled then
+            ExpandPlayerHitbox(player)
+        end
+    end))
+    if HitboxSettings.Enabled then
+        ExpandPlayerHitbox(player)
+    end
+end
+
+-- Eventos
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not AimbotEnabled then return end
     
@@ -603,6 +761,13 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
     end
 end)
 
+Players.PlayerAdded:Connect(function(player)
+    if player ~= LocalPlayer then 
+        SetupESP(player)
+        SetupHitbox(player)
+    end
+end)
+
 Players.PlayerRemoving:Connect(function(player)
     if Resources.ESPObjects[player] then
         if Resources.ESPObjects[player].Parent then Resources.ESPObjects[player]:Destroy() end
@@ -622,5 +787,5 @@ Rayfield:Notify({
 RunService:BindToRenderStep("FOVUpdate", Enum.RenderPriority.Camera.Value + 1, UpdateFOVCircle)
 
 game:GetService("UserInputService").WindowFocused:Connect(function()
-    if not ESPEnabled and not AimbotEnabled then CleanupResources() end
+    if not ESPEnabled and not AimbotEnabled and not HitboxSettings.Enabled then CleanupResources() end
 end)
