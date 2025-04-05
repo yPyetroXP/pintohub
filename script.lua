@@ -44,7 +44,7 @@ local AimbotSettings = {
     Smoothness = 0.5,
     FOV = 400,
     TeamCheck = false,
-    VisibleCheck = false,
+    VisibleCheck = false, -- Desativado temporariamente para testes
     AimPart = "Head",
     FOVVisible = true,
     DrawFOVColor = Color3.fromRGB(255, 255, 255)
@@ -54,20 +54,26 @@ local HitboxSettings = {
     Enabled = false,
     Size = 10,
     TeamCheck = true,
-    Visible = false, -- Nova configuração para visibilidade
-    Color = Color3.fromRGB(255, 0, 0), -- Nova configuração para cor
-    Transparency = 0.5 -- Transparência quando visível
+    Visible = false,
+    Color = Color3.fromRGB(255, 0, 0),
+    Transparency = 0.5
 }
 
 -- Controle de delay para logs
 local lastTargetLogTime = 0
 local targetLogCooldown = 1
 
+-- Verificar se a biblioteca Drawing está disponível
+if not Drawing then
+    warn("[Erro] Biblioteca 'Drawing' não está disponível. Este script requer um executor que suporte a biblioteca Drawing (ex.: Synapse X, Krnl).")
+    return
+end
+
 -- Elementos visuais do Aimbot
 local FOVCircle = Drawing.new("Circle")
 FOVCircle.Visible = false
 FOVCircle.Thickness = 1
-FOVCircle.NumSides = 30
+-- Removido: FOVCircle.NumSides = 30 (propriedade inválida)
 FOVCircle.Radius = AimbotSettings.FOV
 FOVCircle.Filled = false
 FOVCircle.Transparency = 0.7
@@ -75,7 +81,10 @@ FOVCircle.Color = AimbotSettings.DrawFOVColor
 
 -- Funções Auxiliares
 local function UpdateFOVCircle()
-    if not FOVCircle then return end
+    if not FOVCircle then 
+        print("[Aimbot] FOVCircle não inicializado")
+        return 
+    end
     FOVCircle.Visible = AimbotEnabled and AimbotSettings.FOVVisible
     FOVCircle.Radius = AimbotSettings.FOV
     FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y + 36)
@@ -168,20 +177,36 @@ end
 
 -- Funções do Aimbot
 local function IsPlayerValid(player)
-    if not AimbotEnabled then return false end
-    if player == LocalPlayer then return false end
-    if not player.Character then return false end
-    
-    local humanoid = player.Character:FindFirstChild("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then return false end
-    
-    local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
-    if not targetPart then 
-        print("[Aimbot] Parte do corpo não encontrada:", AimbotSettings.AimPart)
+    if not AimbotEnabled then 
+        print("[Aimbot] Aimbot desativado, validação cancelada")
+        return false 
+    end
+    if player == LocalPlayer then 
+        print("[Aimbot] Ignorando jogador local:", player.Name)
+        return false 
+    end
+    if not player.Character then 
+        print("[Aimbot] Personagem não encontrado para:", player.Name)
         return false 
     end
     
-    if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then return false end
+    local humanoid = player.Character:FindFirstChild("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then 
+        print("[Aimbot] Jogador morto ou sem Humanoid:", player.Name)
+        return false 
+    end
+    
+    local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
+    if not targetPart then 
+        print("[Aimbot] Parte do corpo não encontrada:", AimbotSettings.AimPart, "para", player.Name)
+        return false 
+    end
+    
+    if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then 
+        print("[Aimbot] Ignorando jogador do mesmo time:", player.Name)
+        return false 
+    end
+    
     if AimbotSettings.VisibleCheck then
         local raycastParams = RaycastParams.new()
         raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
@@ -191,10 +216,14 @@ local function IsPlayerValid(player)
         local raycastResult = workspace:Raycast(origin, direction, raycastParams)
         if raycastResult and raycastResult.Instance then
             local hitModel = raycastResult.Instance:FindFirstAncestorOfClass("Model")
-            if hitModel ~= player.Character then return false end
+            if hitModel ~= player.Character then 
+                print("[Aimbot] Alvo não visível:", player.Name)
+                return false 
+            end
         end
     end
     
+    print("[Aimbot] Jogador válido:", player.Name)
     return true
 end
 
@@ -219,17 +248,23 @@ local function GetClosestPlayerToMouse()
                             lastTargetLogTime = currentTime
                         end
                     end
+                else
+                    print("[Aimbot] Alvo fora da tela:", player.Name)
                 end
             end
         end
     end
     
+    if not closestPlayer then
+        print("[Aimbot] Nenhum alvo encontrado dentro do FOV")
+    end
     return closestPlayer
 end
 
 function AimbotUpdate()
     if not AimbotEnabled then 
         Resources.Aimbot.Target = nil
+        print("[Aimbot] Aimbot desativado, atualização cancelada")
         return 
     end
     
@@ -238,10 +273,14 @@ function AimbotUpdate()
     if AimbotMode == "Hold" and not UserInputService:IsKeyDown(AimbotKey) then
         Resources.Aimbot.Active = false
         Resources.Aimbot.Target = nil
+        print("[Aimbot] Modo Hold: Tecla não pressionada, Aimbot desativado")
         return
     end
     
-    if not Resources.Aimbot.Active then return end
+    if not Resources.Aimbot.Active then 
+        print("[Aimbot] Aimbot não está ativo")
+        return 
+    end
     
     local target = Resources.Aimbot.Target
     if not target or not IsPlayerValid(target) then
@@ -255,8 +294,13 @@ function AimbotUpdate()
             local currentCFrame = Camera.CFrame
             local targetPosition = targetPart.Position
             local targetCFrame = CFrame.new(currentCFrame.Position, targetPosition)
-            Camera.CFrame = currentCFrame:Lerp(targetCFrame, 1 - AimbotSettings.Smoothness)
+            Camera.CFrame = currentCFrame:Lerp(targetCFrame, AimbotSettings.Smoothness) -- Ajustado para suavidade mais natural
+            print("[Aimbot] Câmera ajustada para alvo:", target.Name)
+        else
+            print("[Aimbot] Parte do alvo não encontrada:", AimbotSettings.AimPart)
         end
+    else
+        print("[Aimbot] Nenhum alvo válido para mirar")
     end
 end
 
