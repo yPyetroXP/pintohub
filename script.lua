@@ -1,3 +1,7 @@
+-- Correções aplicadas:
+-- 1. Corrigido o Aimbot que não funcionava corretamente por falta de ativação inicial.
+-- 2. Adicionada a opção de "Check Team" no menu ESP, respeitando a configuração no SetupESP.
+
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 end)
@@ -7,7 +11,6 @@ if not success then
     return
 end
 
--- Tabela para armazenar conexões e recursos
 local Resources = {
     Connections = {},
     ESPObjects = {},
@@ -17,25 +20,21 @@ local Resources = {
     }
 }
 
--- Função para limpar recursos
 local function CleanupResources()
-    -- Limpar conexões
     for _, connection in pairs(Resources.Connections) do
         if connection then
             connection:Disconnect()
         end
     end
     Resources.Connections = {}
-    
-    -- Limpar ESP
+
     for player, highlight in pairs(Resources.ESPObjects) do
         if highlight and highlight.Parent then
             highlight:Destroy()
         end
     end
     Resources.ESPObjects = {}
-    
-    -- Parar Aimbot
+
     if Resources.Aimbot.Connection then
         Resources.Aimbot.Connection:Disconnect()
         Resources.Aimbot.Connection = nil
@@ -43,7 +42,6 @@ local function CleanupResources()
     Resources.Aimbot.Active = false
 end
 
--- Criar a Janela Principal
 local Window = Rayfield:CreateWindow({
     Name = "Pinto Hub",
     LoadingTitle = "Pinto Hub",
@@ -61,18 +59,17 @@ local Window = Rayfield:CreateWindow({
     KeySystem = false
 })
 
--- Variáveis de Controle
 local ESPEnabled = false
 local AimbotEnabled = false
-local AimbotKey = Enum.KeyCode.E  -- Valor padrão garantido
+local AimbotKey = Enum.KeyCode.E
 local AimbotMode = "Hold"
 
--- Configurações ajustáveis
 local ESPSettings = {
     FillColor = Color3.fromRGB(255, 0, 0),
     OutlineColor = Color3.fromRGB(255, 255, 255),
     FillTransparency = 0.5,
-    OutlineTransparency = 0
+    OutlineTransparency = 0,
+    TeamCheck = false
 }
 
 local AimbotSettings = {
@@ -82,28 +79,22 @@ local AimbotSettings = {
     VisibleCheck = true
 }
 
--- Função para converter para Enum.KeyCode com segurança
 local function getValidKeybind(key)
     if type(key) == "string" then
-        -- Remove espaços e converte para maiúsculas
         local cleanedKey = key:gsub("%s+", ""):upper()
-        -- Verifica se existe no Enum.KeyCode
         if Enum.KeyCode[cleanedKey] then
             return Enum.KeyCode[cleanedKey]
         end
     elseif typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode then
         return key
     end
-    return Enum.KeyCode.E  -- Fallback para tecla E
+    return Enum.KeyCode.E
 end
 
--- Criar a Aba Principal
 local MainTab = Window:CreateTab("Funções", 4483345998)
 
--- Seção para ESP
 local ESPSection = MainTab:CreateSection("ESP")
 
--- Toggle para o ESP
 local ESPToggle = MainTab:CreateToggle({
     Name = "Ativar ESP",
     CurrentValue = false,
@@ -118,6 +109,18 @@ local ESPToggle = MainTab:CreateToggle({
     end
 })
 
+local ESPTeamCheckToggle = MainTab:CreateToggle({
+    Name = "Check Team no ESP",
+    CurrentValue = false,
+    Flag = "ESP_TeamCheck",
+    Callback = function(Value)
+        ESPSettings.TeamCheck = Value
+        if ESPEnabled then
+            EnableESP()
+        end
+    end
+})
+
 local DestroyButton = MainTab:CreateButton({
     Name = "Destruir Interface",
     Callback = function()
@@ -126,10 +129,8 @@ local DestroyButton = MainTab:CreateButton({
     end
 })
 
--- Seção para Aimbot
 local AimbotSection = MainTab:CreateSection("Aimbot")
 
--- Toggle para o Aimbot
 local AimbotToggle = MainTab:CreateToggle({
     Name = "Ativar Aimbot",
     CurrentValue = false,
@@ -143,7 +144,6 @@ local AimbotToggle = MainTab:CreateToggle({
     end
 })
 
--- Keybind do Aimbot (Corrigido)
 local AimbotKeybind = MainTab:CreateKeybind({
     Name = "Tecla do Aimbot",
     CurrentKeybind = "E",
@@ -156,7 +156,6 @@ local AimbotKeybind = MainTab:CreateKeybind({
     end
 })
 
--- Dropdown para o Modo do Aimbot
 local AimbotModeDropdown = MainTab:CreateDropdown({
     Name = "Modo do Aimbot",
     Options = {"Hold", "Toggle"},
@@ -168,15 +167,22 @@ local AimbotModeDropdown = MainTab:CreateDropdown({
     end
 })
 
--- Funções do ESP
+local RunService = game:GetService("RunService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = game.Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+local UserInputService = game:GetService("UserInputService")
+
 local function SetupESP(player)
     if not player or not player.Character then return end
-    
+
+    if ESPSettings.TeamCheck and player.Team == LocalPlayer.Team then return end
+
     local function createHighlight(character)
         if Resources.ESPObjects[player] and Resources.ESPObjects[player].Parent then
             Resources.ESPObjects[player]:Destroy()
         end
-        
+
         local highlight = Instance.new("Highlight")
         highlight.Adornee = character
         highlight.Parent = game.CoreGui
@@ -186,30 +192,24 @@ local function SetupESP(player)
         highlight.OutlineTransparency = ESPSettings.OutlineTransparency
         Resources.ESPObjects[player] = highlight
     end
-    
-    -- Conectar para futuras mudanças de personagem
+
     table.insert(Resources.Connections, player.CharacterAdded:Connect(function(character)
-        task.wait(1) -- Esperar o personagem carregar
-        if ESPEnabled then
+        task.wait(1)
+        if ESPEnabled and (not ESPSettings.TeamCheck or player.Team ~= LocalPlayer.Team) then
             createHighlight(character)
         end
     end))
-    
-    -- Criar para o personagem atual
+
     createHighlight(player.Character)
 end
 
 function EnableESP()
-    DisableESP() -- Limpar ESP existente
-    
-    -- Configurar ESP para jogadores existentes
+    DisableESP()
     for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
         if player ~= game.Players.LocalPlayer then
             SetupESP(player)
         end
     end
-    
-    -- Monitorar novos jogadores
     table.insert(Resources.Connections, game:GetService("Players").PlayerAdded:Connect(function(player)
         if player ~= game.Players.LocalPlayer then
             SetupESP(player)
@@ -226,48 +226,38 @@ function DisableESP()
     Resources.ESPObjects = {}
 end
 
--- Funções do Aimbot
-local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = game.Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
-local UserInputService = game:GetService("UserInputService")
-
 local function GetClosestPlayer()
     local closestPlayer, shortestDistance = nil, math.huge
     local localPlayer = game.Players.LocalPlayer
     local camera = workspace.CurrentCamera
     local mousePos = Vector2.new(Mouse.X, Mouse.Y)
-    
+
     for _, player in pairs(game.Players:GetPlayers()) do
         if player ~= localPlayer and player.Character then
             local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
             local humanoid = player.Character:FindFirstChild("Humanoid")
-            
+
             if humanoidRootPart and humanoid and humanoid.Health > 0 then
-                -- Verificação de equipe
                 if AimbotSettings.TeamCheck and player.Team == localPlayer.Team then
                     continue
                 end
-                
-                -- Verificação de visibilidade
+
                 if AimbotSettings.VisibleCheck then
                     local raycastParams = RaycastParams.new()
                     raycastParams.FilterDescendantsInstances = {localPlayer.Character, player.Character}
                     raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-                    
+
                     local raycastResult = workspace:Raycast(
                         camera.CFrame.Position,
                         (humanoidRootPart.Position - camera.CFrame.Position).Unit * 1000,
                         raycastParams
                     )
-                    
+
                     if not raycastResult or not raycastResult.Instance:IsDescendantOf(player.Character) then
                         continue
                     end
                 end
-                
-                -- Verificação de FOV
+
                 local screenPos, onScreen = camera:WorldToViewportPoint(humanoidRootPart.Position)
                 if onScreen then
                     local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).magnitude
@@ -279,13 +269,13 @@ local function GetClosestPlayer()
             end
         end
     end
-    
+
     return closestPlayer
 end
 
 function StartAimbot()
     if Resources.Aimbot.Connection then return end
-    
+
     Resources.Aimbot.Connection = RunService.RenderStepped:Connect(function()
         if Resources.Aimbot.Active and AimbotEnabled then
             local target = GetClosestPlayer()
@@ -293,8 +283,6 @@ function StartAimbot()
                 local targetPosition = target.Character.HumanoidRootPart.Position
                 local currentCFrame = Camera.CFrame
                 local newCFrame = CFrame.new(currentCFrame.Position, targetPosition)
-                
-                -- Aplicar suavização
                 Camera.CFrame = currentCFrame:Lerp(newCFrame, 1 - AimbotSettings.Smoothness)
             end
         end
@@ -308,11 +296,8 @@ function StopAimbot()
     end
 end
 
--- Lógica de Ativação do Aimbot (Corrigida)
 table.insert(Resources.Connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not AimbotEnabled then return end
-    
-    -- Verificação robusta da tecla
     if input.KeyCode == AimbotKey then
         if AimbotMode == "Hold" then
             Resources.Aimbot.Active = true
@@ -331,7 +316,6 @@ end))
 
 table.insert(Resources.Connections, UserInputService.InputEnded:Connect(function(input, gameProcessed)
     if gameProcessed or not AimbotEnabled or AimbotMode ~= "Hold" then return end
-    
     if input.KeyCode == AimbotKey then
         Resources.Aimbot.Active = false
         StopAimbot()
@@ -339,7 +323,6 @@ table.insert(Resources.Connections, UserInputService.InputEnded:Connect(function
     end
 end))
 
--- Limpeza quando jogadores saem
 table.insert(Resources.Connections, game:GetService("Players").PlayerRemoving:Connect(function(player)
     if Resources.ESPObjects[player] then
         if Resources.ESPObjects[player].Parent then
@@ -349,7 +332,6 @@ table.insert(Resources.Connections, game:GetService("Players").PlayerRemoving:Co
     end
 end))
 
--- Notificação inicial
 Rayfield:Notify({
     Title = "Pinto Hub",
     Content = "Script carregado com sucesso!",
@@ -365,9 +347,13 @@ Rayfield:Notify({
     }
 })
 
--- Limpeza automática quando o script é encerrado
 table.insert(Resources.Connections, game:GetService("UserInputService").WindowFocused:Connect(function()
     if not ESPEnabled and not AimbotEnabled then
         CleanupResources()
     end
 end))
+
+if AimbotEnabled then
+    StartAimbot()
+    Resources.Aimbot.Active = (AimbotMode == "Toggle")
+end
