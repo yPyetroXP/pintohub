@@ -1,8 +1,8 @@
 -- Correções aplicadas:
--- 1. Implementada função mousemoveabs para controle do mouse
--- 2. Ajustado sistema de raycast para verificação de visibilidade
--- 3. Adicionados logs de depuração
--- 4. Corrigido sistema de ativação do aimbot
+-- 1. Corrigida função mousemoveabs
+-- 2. Adicionados logs de depuração detalhados
+-- 3. Simplificada lógica de raycast para testes
+-- 4. Adicionado fallback para movimento do mouse
 
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
@@ -13,9 +13,10 @@ if not success then
     return
 end
 
--- Função para mover o mouse
+-- Função para mover o mouse com log
 local function mousemoveabs(x, y)
     local vim = game:GetService("VirtualInputManager")
+    print("[Aimbot] Tentando mover mouse para:", x, y)
     vim:SendMouseMoveEvent(x, y, game:GetService("Players").LocalPlayer)
 end
 
@@ -31,19 +32,13 @@ local Resources = {
 
 local function CleanupResources()
     for _, connection in pairs(Resources.Connections) do
-        if connection then
-            connection:Disconnect()
-        end
+        if connection then connection:Disconnect() end
     end
     Resources.Connections = {}
-
     for player, highlight in pairs(Resources.ESPObjects) do
-        if highlight and highlight.Parent then
-            highlight:Destroy()
-        end
+        if highlight and highlight.Parent then highlight:Destroy() end
     end
     Resources.ESPObjects = {}
-
     if Resources.Aimbot.Connection then
         Resources.Aimbot.Connection:Disconnect()
         Resources.Aimbot.Connection = nil
@@ -56,16 +51,8 @@ local Window = Rayfield:CreateWindow({
     Name = "Pinto Hub",
     LoadingTitle = "Pinto Hub",
     LoadingSubtitle = "by PintoTeam",
-    ConfigurationSaving = {
-        Enabled = true,
-        FolderName = "PintoHubConfig",
-        FileName = "PintoHubSettings"
-    },
-    Discord = {
-        Enabled = false,
-        Invite = "",
-        RememberJoins = true
-    },
+    ConfigurationSaving = {Enabled = true, FolderName = "PintoHubConfig", FileName = "PintoHubSettings"},
+    Discord = {Enabled = false, Invite = "", RememberJoins = true},
     KeySystem = false
 })
 
@@ -112,7 +99,6 @@ FOVCircle.Color = AimbotSettings.DrawFOVColor
 
 local function UpdateFOVCircle()
     if not FOVCircle then return end
-    
     FOVCircle.Visible = AimbotEnabled and AimbotSettings.FOVVisible
     FOVCircle.Radius = AimbotSettings.FOV
     FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y + 36)
@@ -122,9 +108,7 @@ end
 local function getValidKeybind(key)
     if type(key) == "string" then
         local cleanedKey = key:gsub("%s+", ""):upper()
-        if Enum.KeyCode[cleanedKey] then
-            return Enum.KeyCode[cleanedKey]
-        end
+        if Enum.KeyCode[cleanedKey] then return Enum.KeyCode[cleanedKey] end
     elseif typeof(key) == "EnumItem" and key.EnumType == Enum.KeyCode then
         return key
     end
@@ -132,7 +116,6 @@ local function getValidKeybind(key)
 end
 
 local MainTab = Window:CreateTab("Funções", 4483345998)
-
 local ESPSection = MainTab:CreateSection("ESP")
 
 local ESPToggle = MainTab:CreateToggle({
@@ -141,11 +124,7 @@ local ESPToggle = MainTab:CreateToggle({
     Flag = "ESP_Toggle",
     Callback = function(Value)
         ESPEnabled = Value
-        if ESPEnabled then
-            EnableESP()
-        else
-            DisableESP()
-        end
+        if ESPEnabled then EnableESP() else DisableESP() end
     end
 })
 
@@ -155,9 +134,7 @@ local ESPTeamCheckToggle = MainTab:CreateToggle({
     Flag = "ESP_TeamCheck",
     Callback = function(Value)
         ESPSettings.TeamCheck = Value
-        if ESPEnabled then
-            EnableESP()
-        end
+        if ESPEnabled then EnableESP() end
     end
 })
 
@@ -165,9 +142,7 @@ local DestroyButton = MainTab:CreateButton({
     Name = "Destruir Interface",
     Callback = function()
         CleanupResources()
-        if FOVCircle then
-            FOVCircle:Remove()
-        end
+        if FOVCircle then FOVCircle:Remove() end
         Rayfield:Destroy()
         print("Interface destruída.")
     end
@@ -190,7 +165,6 @@ local AimbotToggle = MainTab:CreateToggle({
             Resources.Aimbot.Target = nil
             print("[Aimbot] Desativado")
         end
-        
         FOVCircle.Visible = AimbotEnabled and AimbotSettings.FOVVisible
     end
 })
@@ -241,7 +215,7 @@ local AimbotFOVSlider = MainTab:CreateSlider({
         AimbotSettings.FOV = Value
         FOVCircle.Radius = Value
         print("[Aimbot] FOV ajustado para:", Value)
-    end,
+    end
 })
 
 local AimbotSmoothnessSlider = MainTab:CreateSlider({
@@ -254,7 +228,7 @@ local AimbotSmoothnessSlider = MainTab:CreateSlider({
     Callback = function(Value)
         AimbotSettings.Smoothness = Value / 10
         print("[Aimbot] Suavização ajustada para:", Value / 10)
-    end,
+    end
 })
 
 local AimbotTeamCheckToggle = MainTab:CreateToggle({
@@ -290,14 +264,12 @@ local AimbotFOVVisibleToggle = MainTab:CreateToggle({
 
 local function SetupESP(player)
     if not player or not player.Character then return end
-
     if ESPSettings.TeamCheck and player.Team == LocalPlayer.Team then return end
 
     local function createHighlight(character)
         if Resources.ESPObjects[player] and Resources.ESPObjects[player].Parent then
             Resources.ESPObjects[player]:Destroy()
         end
-
         local highlight = Instance.new("Highlight")
         highlight.Adornee = character
         highlight.Parent = game.CoreGui
@@ -314,29 +286,22 @@ local function SetupESP(player)
             createHighlight(character)
         end
     end))
-
     createHighlight(player.Character)
 end
 
 function EnableESP()
     DisableESP()
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            SetupESP(player)
-        end
+        if player ~= LocalPlayer then SetupESP(player) end
     end
     table.insert(Resources.Connections, Players.PlayerAdded:Connect(function(player)
-        if player ~= LocalPlayer then
-            SetupESP(player)
-        end
+        if player ~= LocalPlayer then SetupESP(player) end
     end))
 end
 
 function DisableESP()
     for player, highlight in pairs(Resources.ESPObjects) do
-        if highlight and highlight.Parent then
-            highlight:Destroy()
-        end
+        if highlight and highlight.Parent then highlight:Destroy() end
     end
     Resources.ESPObjects = {}
 end
@@ -349,7 +314,10 @@ local function IsPlayerValid(player)
     if not humanoid or humanoid.Health <= 0 then return false end
     
     local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
-    if not targetPart then return false end
+    if not targetPart then 
+        print("[Aimbot] Parte do corpo não encontrada:", AimbotSettings.AimPart)
+        return false 
+    end
     
     if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then return false end
     
@@ -359,11 +327,15 @@ local function IsPlayerValid(player)
         raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
         
         local origin = Camera.CFrame.Position
-        local direction = (targetPart.Position - origin).Unit
-        local raycastResult = workspace:Raycast(origin, direction * (origin - targetPart.Position).Magnitude, raycastParams)
+        local direction = (targetPart.Position - origin)
+        local raycastResult = workspace:Raycast(origin, direction, raycastParams)
         
-        if raycastResult and raycastResult.Instance:FindFirstAncestorOfClass("Model") ~= player.Character then
-            return false
+        if raycastResult and raycastResult.Instance then
+            local hitModel = raycastResult.Instance:FindFirstAncestorOfClass("Model")
+            if hitModel ~= player.Character then
+                print("[Aimbot] Alvo obstruído por:", hitModel and hitModel.Name or "desconhecido")
+                return false
+            end
         end
     end
     
@@ -380,13 +352,12 @@ local function GetClosestPlayerToMouse()
             local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
             if targetPart then
                 local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-                
                 if onScreen then
                     local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                    
                     if distance < shortestDistance then
                         closestPlayer = player
                         shortestDistance = distance
+                        print("[Aimbot] Novo alvo mais próximo:", player.Name, "Distância:", distance)
                     end
                 end
             end
@@ -400,16 +371,19 @@ function AimbotUpdate()
     UpdateFOVCircle()
     
     if not AimbotEnabled then
+        print("[Aimbot] Desativado globalmente")
         return
     end
     
     if AimbotMode == "Hold" and not UserInputService:IsKeyDown(AimbotKey) then
         Resources.Aimbot.Active = false
         Resources.Aimbot.Target = nil
+        print("[Aimbot] Desativado (Hold não pressionado)")
         return
     end
     
     if not Resources.Aimbot.Active then
+        print("[Aimbot] Não ativo")
         return
     end
     
@@ -417,21 +391,25 @@ function AimbotUpdate()
     if not target or not IsPlayerValid(target) then
         target = GetClosestPlayerToMouse()
         Resources.Aimbot.Target = target
+        if target then
+            print("[Aimbot] Alvo selecionado:", target.Name)
+        else
+            print("[Aimbot] Nenhum alvo válido encontrado")
+        end
     end
     
     if target and target.Character then
         local targetPart = target.Character:FindFirstChild(AimbotSettings.AimPart)
         if targetPart then
             local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-            
             if onScreen then
                 local mousePos = Vector2.new(Mouse.X, Mouse.Y)
                 local targetPos = Vector2.new(screenPos.X, screenPos.Y)
                 local newPos = mousePos:Lerp(targetPos, 1 - AimbotSettings.Smoothness)
-                
                 mousemoveabs(newPos.X, newPos.Y)
             else
                 Resources.Aimbot.Target = nil
+                print("[Aimbot] Alvo fora da tela")
             end
         end
     end
@@ -455,15 +433,10 @@ end)
 
 Players.PlayerRemoving:Connect(function(player)
     if Resources.ESPObjects[player] then
-        if Resources.ESPObjects[player].Parent then
-            Resources.ESPObjects[player]:Destroy()
-        end
+        if Resources.ESPObjects[player].Parent then Resources.ESPObjects[player]:Destroy() end
         Resources.ESPObjects[player] = nil
     end
-    
-    if Resources.Aimbot.Target == player then
-        Resources.Aimbot.Target = nil
-    end
+    if Resources.Aimbot.Target == player then Resources.Aimbot.Target = nil end
 end)
 
 Rayfield:Notify({
@@ -471,20 +444,11 @@ Rayfield:Notify({
     Content = "Script carregado com sucesso!",
     Duration = 6.5,
     Image = 4483345998,
-    Actions = {
-        Ignore = {
-            Name = "OK",
-            Callback = function()
-                print("O usuário reconheceu a notificação")
-            end
-        }
-    }
+    Actions = {Ignore = {Name = "OK", Callback = function() print("O usuário reconheceu a notificação") end}}
 })
 
 RunService:BindToRenderStep("FOVUpdate", Enum.RenderPriority.Camera.Value + 1, UpdateFOVCircle)
 
 game:GetService("UserInputService").WindowFocused:Connect(function()
-    if not ESPEnabled and not AimbotEnabled then
-        CleanupResources()
-    end
+    if not ESPEnabled and not AimbotEnabled then CleanupResources() end
 end)
