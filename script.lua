@@ -1,8 +1,8 @@
 -- Correções aplicadas:
--- 1. Corrigida função mousemoveabs
--- 2. Adicionados logs de depuração detalhados
--- 3. Simplificada lógica de raycast para testes
--- 4. Adicionado fallback para movimento do mouse
+-- 1. Substituído movimento do mouse por manipulação da câmera
+-- 2. Reduzidos logs excessivos
+-- 3. Mantido botão Rejoin e adicionado teste de câmera
+-- 4. Simplificada validação de alvos para testes
 
 local success, Rayfield = pcall(function()
     return loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
@@ -11,13 +11,6 @@ end)
 if not success then
     warn("Falha ao carregar Rayfield:", Rayfield)
     return
-end
-
--- Função para mover o mouse com log
-local function mousemoveabs(x, y)
-    local vim = game:GetService("VirtualInputManager")
-    print("[Aimbot] Tentando mover mouse para:", x, y)
-    vim:SendMouseMoveEvent(x, y, game:GetService("Players").LocalPlayer)
 end
 
 local Resources = {
@@ -70,10 +63,10 @@ local ESPSettings = {
 }
 
 local AimbotSettings = {
-    Smoothness = 0.5,
-    FOV = 100,
-    TeamCheck = true,
-    VisibleCheck = true,
+    Smoothness = 0.5, -- Controla a velocidade da interpolação da câmera
+    FOV = 400, -- Aumentado para facilitar testes
+    TeamCheck = false, -- Desativado para testes
+    VisibleCheck = false, -- Desativado para testes
     AimPart = "Head",
     FOVVisible = true,
     DrawFOVColor = Color3.fromRGB(255, 255, 255)
@@ -83,6 +76,7 @@ local AimbotSettings = {
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 local Mouse = LocalPlayer:GetMouse()
@@ -148,6 +142,27 @@ local DestroyButton = MainTab:CreateButton({
     end
 })
 
+local RejoinButton = MainTab:CreateButton({
+    Name = "Rejoin",
+    Callback = function()
+        local placeId = game.PlaceId
+        local jobId = game.JobId
+        print("[Pinto Hub] Tentando reconectar ao servidor:", jobId)
+        TeleportService:TeleportToPlaceInstance(placeId, jobId, LocalPlayer)
+    end
+})
+
+-- Botão de teste para rotação da câmera
+local TestCameraButton = MainTab:CreateButton({
+    Name = "Testar Câmera",
+    Callback = function()
+        print("[Teste] Rotacionando câmera para frente")
+        local currentCFrame = Camera.CFrame
+        local targetCFrame = CFrame.new(currentCFrame.Position, currentCFrame.Position + Vector3.new(0, 0, -10))
+        Camera.CFrame = targetCFrame
+    end
+})
+
 local AimbotSection = MainTab:CreateSection("Aimbot")
 
 local AimbotToggle = MainTab:CreateToggle({
@@ -158,12 +173,12 @@ local AimbotToggle = MainTab:CreateToggle({
         AimbotEnabled = Value
         if AimbotEnabled then
             RunService:BindToRenderStep("AimbotUpdate", Enum.RenderPriority.Last.Value, AimbotUpdate)
-            print("[Aimbot] Ativado")
+            print("[Aimbot] Ativado globalmente")
         else
             RunService:UnbindFromRenderStep("AimbotUpdate")
             Resources.Aimbot.Active = false
             Resources.Aimbot.Target = nil
-            print("[Aimbot] Desativado")
+            print("[Aimbot] Desativado globalmente")
         end
         FOVCircle.Visible = AimbotEnabled and AimbotSettings.FOVVisible
     end
@@ -173,7 +188,7 @@ local AimbotKeybind = MainTab:CreateKeybind({
     Name = "Tecla do Aimbot",
     CurrentKeybind = "E",
     HoldToInteract = false,
-    Flag = "AimbotKeybind",
+    W = "AimbotKeybind",
     Callback = function(Keybind)
         local newKey = getValidKeybind(Keybind)
         AimbotKey = newKey
@@ -320,22 +335,16 @@ local function IsPlayerValid(player)
     end
     
     if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then return false end
-    
     if AimbotSettings.VisibleCheck then
         local raycastParams = RaycastParams.new()
         raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
         raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-        
         local origin = Camera.CFrame.Position
         local direction = (targetPart.Position - origin)
         local raycastResult = workspace:Raycast(origin, direction, raycastParams)
-        
         if raycastResult and raycastResult.Instance then
             local hitModel = raycastResult.Instance:FindFirstAncestorOfClass("Model")
-            if hitModel ~= player.Character then
-                print("[Aimbot] Alvo obstruído por:", hitModel and hitModel.Name or "desconhecido")
-                return false
-            end
+            if hitModel ~= player.Character then return false end
         end
     end
     
@@ -357,7 +366,7 @@ local function GetClosestPlayerToMouse()
                     if distance < shortestDistance then
                         closestPlayer = player
                         shortestDistance = distance
-                        print("[Aimbot] Novo alvo mais próximo:", player.Name, "Distância:", distance)
+                        print("[Aimbot] Alvo encontrado:", player.Name, "Distância:", distance)
                     end
                 end
             end
@@ -370,47 +379,31 @@ end
 function AimbotUpdate()
     UpdateFOVCircle()
     
-    if not AimbotEnabled then
-        print("[Aimbot] Desativado globalmente")
-        return
-    end
+    if not AimbotEnabled then return end
     
     if AimbotMode == "Hold" and not UserInputService:IsKeyDown(AimbotKey) then
         Resources.Aimbot.Active = false
         Resources.Aimbot.Target = nil
-        print("[Aimbot] Desativado (Hold não pressionado)")
         return
     end
     
-    if not Resources.Aimbot.Active then
-        print("[Aimbot] Não ativo")
-        return
-    end
+    if not Resources.Aimbot.Active then return end
     
     local target = Resources.Aimbot.Target
     if not target or not IsPlayerValid(target) then
         target = GetClosestPlayerToMouse()
         Resources.Aimbot.Target = target
-        if target then
-            print("[Aimbot] Alvo selecionado:", target.Name)
-        else
-            print("[Aimbot] Nenhum alvo válido encontrado")
-        end
     end
     
     if target and target.Character then
         local targetPart = target.Character:FindFirstChild(AimbotSettings.AimPart)
         if targetPart then
-            local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
-            if onScreen then
-                local mousePos = Vector2.new(Mouse.X, Mouse.Y)
-                local targetPos = Vector2.new(screenPos.X, screenPos.Y)
-                local newPos = mousePos:Lerp(targetPos, 1 - AimbotSettings.Smoothness)
-                mousemoveabs(newPos.X, newPos.Y)
-            else
-                Resources.Aimbot.Target = nil
-                print("[Aimbot] Alvo fora da tela")
-            end
+            local currentCFrame = Camera.CFrame
+            local targetPosition = targetPart.Position
+            local targetCFrame = CFrame.new(currentCFrame.Position, targetPosition)
+            -- Interpolação suave da câmera
+            Camera.CFrame = currentCFrame:Lerp(targetCFrame, 1 - AimbotSettings.Smoothness)
+            print("[Aimbot] Câmera ajustada para alvo:", target.Name)
         end
     end
 end
@@ -422,12 +415,21 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if AimbotMode == "Toggle" then
             Resources.Aimbot.Active = not Resources.Aimbot.Active
             Resources.Aimbot.Target = nil
-            print("[Aimbot] " .. (Resources.Aimbot.Active and "Ativado" or "Desativado") .. " (Toggle)")
+            print("[Aimbot] Estado Toggle:", Resources.Aimbot.Active and "Ativado" or "Desativado")
         elseif AimbotMode == "Hold" then
             Resources.Aimbot.Active = true
             Resources.Aimbot.Target = nil
             print("[Aimbot] Ativado (Hold)")
         end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed or not AimbotEnabled then return end
+    if AimbotMode == "Hold" and input.KeyCode == AimbotKey then
+        Resources.Aimbot.Active = false
+        Resources.Aimbot.Target = nil
+        print("[Aimbot] Desativado (Hold)")
     end
 end)
 
