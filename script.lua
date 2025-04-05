@@ -1,5 +1,5 @@
 -- Correções aplicadas:
--- 1. Corrigido o Aimbot que não funcionava corretamente por falta de ativação inicial.
+-- 1. Refeito o sistema Aimbot completamente para garantir funcionamento correto
 -- 2. Adicionada a opção de "Check Team" no menu ESP, respeitando a configuração no SetupESP.
 
 local success, Rayfield = pcall(function()
@@ -16,7 +16,8 @@ local Resources = {
     ESPObjects = {},
     Aimbot = {
         Connection = nil,
-        Active = false
+        Active = false,
+        Target = nil
     }
 }
 
@@ -40,6 +41,7 @@ local function CleanupResources()
         Resources.Aimbot.Connection = nil
     end
     Resources.Aimbot.Active = false
+    Resources.Aimbot.Target = nil
 end
 
 local Window = Rayfield:CreateWindow({
@@ -76,8 +78,38 @@ local AimbotSettings = {
     Smoothness = 0.5,
     FOV = 100,
     TeamCheck = true,
-    VisibleCheck = true
+    VisibleCheck = true,
+    AimPart = "Head",  -- Nova opção para escolher parte do corpo
+    FOVVisible = true, -- Nova opção para mostrar círculo de FOV
+    DrawFOVColor = Color3.fromRGB(255, 255, 255) -- Cor do círculo de FOV
 }
+
+-- Serviços
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
+
+-- Elementos visuais do Aimbot
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Thickness = 1
+FOVCircle.NumSides = 30
+FOVCircle.Radius = AimbotSettings.FOV
+FOVCircle.Filled = false
+FOVCircle.Transparency = 0.7
+FOVCircle.Color = AimbotSettings.DrawFOVColor
+
+local function UpdateFOVCircle()
+    if not FOVCircle then return end
+    
+    FOVCircle.Visible = AimbotEnabled and AimbotSettings.FOVVisible
+    FOVCircle.Radius = AimbotSettings.FOV
+    FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y + 36)
+    FOVCircle.Color = AimbotSettings.DrawFOVColor
+end
 
 local function getValidKeybind(key)
     if type(key) == "string" then
@@ -124,6 +156,10 @@ local ESPTeamCheckToggle = MainTab:CreateToggle({
 local DestroyButton = MainTab:CreateButton({
     Name = "Destruir Interface",
     Callback = function()
+        CleanupResources()
+        if FOVCircle then
+            FOVCircle:Remove()
+        end
         Rayfield:Destroy()
         print("Interface destruída.")
     end
@@ -138,20 +174,16 @@ local AimbotToggle = MainTab:CreateToggle({
     Callback = function(Value)
         AimbotEnabled = Value
         if AimbotEnabled then
-            StartAimbot()
-            -- Inicia o aimbot corretamente baseado no modo selecionado
-            if AimbotMode == "Toggle" then
-                Resources.Aimbot.Active = true
-                print("[Aimbot] Ativado (modo Toggle)")
-            else
-                Resources.Aimbot.Active = false
-                print("[Aimbot] Preparado (modo Hold - aguardando pressionar tecla)")
-            end
+            RunService:BindToRenderStep("AimbotUpdate", Enum.RenderPriority.Last.Value, AimbotUpdate)
+            print("[Aimbot] Ativado")
         else
+            RunService:UnbindFromRenderStep("AimbotUpdate")
             Resources.Aimbot.Active = false
-            StopAimbot()
+            Resources.Aimbot.Target = nil
             print("[Aimbot] Desativado")
         end
+        
+        FOVCircle.Visible = AimbotEnabled and AimbotSettings.FOVVisible
     end
 })
 
@@ -174,27 +206,79 @@ local AimbotModeDropdown = MainTab:CreateDropdown({
     Flag = "AimbotMode",
     Callback = function(Option)
         AimbotMode = Option
+        Resources.Aimbot.Active = false
         print("[Aimbot] Modo alterado para:", Option)
-        
-        -- Resetar o estado ativo quando mudar o modo
-        if AimbotEnabled then
-            if AimbotMode == "Toggle" then
-                Resources.Aimbot.Active = true
-                StartAimbot()
-                print("[Aimbot] Modo alterado para Toggle - ativado automaticamente")
-            else
-                Resources.Aimbot.Active = false
-                print("[Aimbot] Modo alterado para Hold - aguardando pressionar tecla")
-            end
-        end
     end
 })
 
-local RunService = game:GetService("RunService")
-local Camera = workspace.CurrentCamera
-local LocalPlayer = game.Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
-local UserInputService = game:GetService("UserInputService")
+local AimbotPartDropdown = MainTab:CreateDropdown({
+    Name = "Parte do Corpo",
+    Options = {"Head", "HumanoidRootPart", "Torso"},
+    CurrentOption = AimbotSettings.AimPart,
+    Flag = "AimbotPart",
+    Callback = function(Option)
+        AimbotSettings.AimPart = Option
+        print("[Aimbot] Parte do corpo alterada para:", Option)
+    end
+})
+
+local AimbotFOVSlider = MainTab:CreateSlider({
+    Name = "FOV do Aimbot",
+    Range = {10, 400},
+    Increment = 5,
+    Suffix = "px",
+    CurrentValue = AimbotSettings.FOV,
+    Flag = "AimbotFOV",
+    Callback = function(Value)
+        AimbotSettings.FOV = Value
+        FOVCircle.Radius = Value
+        print("[Aimbot] FOV ajustado para:", Value)
+    end,
+})
+
+local AimbotSmoothnessSlider = MainTab:CreateSlider({
+    Name = "Suavização do Aimbot",
+    Range = {0, 10},
+    Increment = 0.1,
+    Suffix = "",
+    CurrentValue = AimbotSettings.Smoothness * 10,
+    Flag = "AimbotSmoothness",
+    Callback = function(Value)
+        AimbotSettings.Smoothness = Value / 10
+        print("[Aimbot] Suavização ajustada para:", Value / 10)
+    end,
+})
+
+local AimbotTeamCheckToggle = MainTab:CreateToggle({
+    Name = "Check Team no Aimbot",
+    CurrentValue = AimbotSettings.TeamCheck,
+    Flag = "AimbotTeamCheck",
+    Callback = function(Value)
+        AimbotSettings.TeamCheck = Value
+        print("[Aimbot] Check Team:", Value and "Ativado" or "Desativado")
+    end
+})
+
+local AimbotVisibleCheckToggle = MainTab:CreateToggle({
+    Name = "Check Visibilidade",
+    CurrentValue = AimbotSettings.VisibleCheck,
+    Flag = "AimbotVisibleCheck",
+    Callback = function(Value)
+        AimbotSettings.VisibleCheck = Value
+        print("[Aimbot] Check Visibilidade:", Value and "Ativado" or "Desativado")
+    end
+})
+
+local AimbotFOVVisibleToggle = MainTab:CreateToggle({
+    Name = "Mostrar Círculo FOV",
+    CurrentValue = AimbotSettings.FOVVisible,
+    Flag = "AimbotFOVVisible",
+    Callback = function(Value)
+        AimbotSettings.FOVVisible = Value
+        FOVCircle.Visible = AimbotEnabled and Value
+        print("[Aimbot] Círculo FOV:", Value and "Visível" or "Oculto")
+    end
+})
 
 local function SetupESP(player)
     if not player or not player.Character then return end
@@ -228,13 +312,13 @@ end
 
 function EnableESP()
     DisableESP()
-    for _, player in ipairs(game:GetService("Players"):GetPlayers()) do
-        if player ~= game.Players.LocalPlayer then
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
             SetupESP(player)
         end
     end
-    table.insert(Resources.Connections, game:GetService("Players").PlayerAdded:Connect(function(player)
-        if player ~= game.Players.LocalPlayer then
+    table.insert(Resources.Connections, Players.PlayerAdded:Connect(function(player)
+        if player ~= LocalPlayer then
             SetupESP(player)
         end
     end))
@@ -249,42 +333,51 @@ function DisableESP()
     Resources.ESPObjects = {}
 end
 
-local function GetClosestPlayer()
-    local closestPlayer, shortestDistance = nil, math.huge
-    local localPlayer = game.Players.LocalPlayer
-    local camera = workspace.CurrentCamera
+-- Função que verifica se um jogador é válido para o Aimbot
+local function IsPlayerValid(player)
+    if player == LocalPlayer then return false end
+    if not player.Character then return false end
+    
+    local humanoid = player.Character:FindFirstChild("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return false end
+    
+    local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
+    if not targetPart then return false end
+    
+    if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then return false end
+    
+    if AimbotSettings.VisibleCheck then
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, player.Character}
+        raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+        
+        local direction = (targetPart.Position - Camera.CFrame.Position).Unit
+        local raycastResult = workspace:Raycast(Camera.CFrame.Position, direction * 1000, raycastParams)
+        
+        if not raycastResult or not raycastResult.Instance:IsDescendantOf(player.Character) then
+            return false
+        end
+    end
+    
+    return true
+end
+
+-- Função que encontra o jogador mais próximo do mouse dentro do FOV
+local function GetClosestPlayerToMouse()
+    local closestPlayer = nil
+    local shortestDistance = AimbotSettings.FOV
     local mousePos = Vector2.new(Mouse.X, Mouse.Y)
-
-    for _, player in pairs(game.Players:GetPlayers()) do
-        if player ~= localPlayer and player.Character then
-            local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
-            local humanoid = player.Character:FindFirstChild("Humanoid")
-
-            if humanoidRootPart and humanoid and humanoid.Health > 0 then
-                if AimbotSettings.TeamCheck and player.Team == localPlayer.Team then
-                    continue
-                end
-
-                if AimbotSettings.VisibleCheck then
-                    local raycastParams = RaycastParams.new()
-                    raycastParams.FilterDescendantsInstances = {localPlayer.Character, player.Character}
-                    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-
-                    local raycastResult = workspace:Raycast(
-                        camera.CFrame.Position,
-                        (humanoidRootPart.Position - camera.CFrame.Position).Unit * 1000,
-                        raycastParams
-                    )
-
-                    if not raycastResult or not raycastResult.Instance:IsDescendantOf(player.Character) then
-                        continue
-                    end
-                end
-
-                local screenPos, onScreen = camera:WorldToViewportPoint(humanoidRootPart.Position)
+    
+    for _, player in pairs(Players:GetPlayers()) do
+        if IsPlayerValid(player) then
+            local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
+            if targetPart then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                
                 if onScreen then
-                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).magnitude
-                    if distance < AimbotSettings.FOV and distance < shortestDistance then
+                    local distance = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                    
+                    if distance < shortestDistance then
                         closestPlayer = player
                         shortestDistance = distance
                     end
@@ -292,67 +385,87 @@ local function GetClosestPlayer()
             end
         end
     end
-
+    
     return closestPlayer
 end
 
-function StartAimbot()
-    if Resources.Aimbot.Connection then
-        Resources.Aimbot.Connection:Disconnect()
-        Resources.Aimbot.Connection = nil
+-- Função principal do Aimbot que é executada a cada frame
+function AimbotUpdate()
+    UpdateFOVCircle()
+    
+    if not AimbotEnabled or not Resources.Aimbot.Active then
+        return
     end
-
-    Resources.Aimbot.Connection = RunService.RenderStepped:Connect(function()
-        if not AimbotEnabled or not Resources.Aimbot.Active then return end
-
-        local target = GetClosestPlayer()
-        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-            local targetPosition = target.Character.HumanoidRootPart.Position
-            local currentCFrame = Camera.CFrame
-            local newCFrame = CFrame.new(currentCFrame.Position, targetPosition)
-
-            -- Aplicar suavização
-            Camera.CFrame = currentCFrame:Lerp(newCFrame, 1 - AimbotSettings.Smoothness)
+    
+    -- Obtém o alvo atual ou encontra um novo
+    local target = Resources.Aimbot.Target
+    if not target or not IsPlayerValid(target) then
+        target = GetClosestPlayerToMouse()
+        Resources.Aimbot.Target = target
+    end
+    
+    -- Se tiver um alvo válido, mira nele
+    if target and target.Character then
+        local targetPart = target.Character:FindFirstChild(AimbotSettings.AimPart)
+        if targetPart then
+            local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+            
+            if onScreen then
+                -- Calcula a nova posição do mouse com suavização
+                local mousePos = Vector2.new(Mouse.X, Mouse.Y)
+                local targetPos = Vector2.new(screenPos.X, screenPos.Y)
+                local newPos = mousePos:Lerp(targetPos, 1 - AimbotSettings.Smoothness)
+                
+                -- Move o mouse para a posição calculada
+                mousemoveabs(newPos.X, newPos.Y)
+            else
+                -- Se o alvo sair da tela, procura um novo alvo
+                Resources.Aimbot.Target = nil
+            end
         end
-    end)
-end
-
-function StopAimbot()
-    if Resources.Aimbot.Connection then
-        Resources.Aimbot.Connection:Disconnect()
-        Resources.Aimbot.Connection = nil
     end
 end
 
-table.insert(Resources.Connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
+-- Gerencia eventos de input para ativar/desativar o Aimbot
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not AimbotEnabled then return end
+    
     if input.KeyCode == AimbotKey then
-        if AimbotMode == "Hold" then
-            Resources.Aimbot.Active = true
-            print("[Aimbot] Ativado (modo Hold - pressionando)")
-        elseif AimbotMode == "Toggle" then
+        if AimbotMode == "Toggle" then
             Resources.Aimbot.Active = not Resources.Aimbot.Active
-            print("[Aimbot] Estado:", Resources.Aimbot.Active and "Ativado" or "Desativado", "(modo Toggle)")
+            Resources.Aimbot.Target = nil
+            print("[Aimbot] " .. (Resources.Aimbot.Active and "Ativado" or "Desativado") .. " (Toggle)")
+        elseif AimbotMode == "Hold" then
+            Resources.Aimbot.Active = true
+            Resources.Aimbot.Target = nil
+            print("[Aimbot] Ativado (Hold)")
         end
     end
-end))
+end)
 
-table.insert(Resources.Connections, UserInputService.InputEnded:Connect(function(input, gameProcessed)
-    if gameProcessed or not AimbotEnabled or AimbotMode ~= "Hold" then return end
-    if input.KeyCode == AimbotKey then
+UserInputService.InputEnded:Connect(function(input, gameProcessed)
+    if gameProcessed or not AimbotEnabled then return end
+    
+    if input.KeyCode == AimbotKey and AimbotMode == "Hold" then
         Resources.Aimbot.Active = false
-        print("[Aimbot] Desativado (modo Hold - tecla solta)")
+        Resources.Aimbot.Target = nil
+        print("[Aimbot] Desativado (Hold)")
     end
-end))
+end)
 
-table.insert(Resources.Connections, game:GetService("Players").PlayerRemoving:Connect(function(player)
+-- Limpa recursos quando um jogador sai
+Players.PlayerRemoving:Connect(function(player)
     if Resources.ESPObjects[player] then
         if Resources.ESPObjects[player].Parent then
             Resources.ESPObjects[player]:Destroy()
         end
         Resources.ESPObjects[player] = nil
     end
-end))
+    
+    if Resources.Aimbot.Target == player then
+        Resources.Aimbot.Target = nil
+    end
+end)
 
 Rayfield:Notify({
     Title = "Pinto Hub",
@@ -369,13 +482,12 @@ Rayfield:Notify({
     }
 })
 
-table.insert(Resources.Connections, game:GetService("UserInputService").WindowFocused:Connect(function()
+-- Atualização constante do círculo de FOV
+RunService:BindToRenderStep("FOVUpdate", Enum.RenderPriority.Camera.Value + 1, UpdateFOVCircle)
+
+-- Limpeza ao fechar o script
+game:GetService("UserInputService").WindowFocused:Connect(function()
     if not ESPEnabled and not AimbotEnabled then
         CleanupResources()
     end
-end))
-
-if AimbotEnabled then
-    StartAimbot()
-    Resources.Aimbot.Active = (AimbotMode == "Toggle")
-end
+end)
