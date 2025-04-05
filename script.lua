@@ -422,6 +422,27 @@ local LoadConfigButton = ConfigTab:CreateButton({
     end
 })
 
+local Themes = {
+    ["Default"] = "Default",
+    ["Amber Glow"] = "AmberGlow",
+    ["Amethyst"] = "Amethyst",
+    ["Bloom"] = "Bloom",
+    ["Dark Blue"] = "DarkBlue",
+    ["Green"] = "Green",
+    ["Light"] = "Light",
+    ["Ocean"] = "Ocean",
+    ["Serenity"] = "Serenity"
+}
+
+ConfigSection:CreateDropdown({
+    Name = "Tema da UI",
+    Options = {"Default", "Amber Glow", "Amethyst", "Bloom", "Dark Blue", "Green", "Light", "Ocean", "Serenity"},
+    CurrentOption = "Default",
+    Callback = function(selected)
+        Rayfield:LoadTheme(Themes[selected])
+    end
+})
+
 local function SetupESP(player)
     if not player or not player.Character then return end
     if ESPSettings.TeamCheck and player.Team == LocalPlayer.Team then return end
