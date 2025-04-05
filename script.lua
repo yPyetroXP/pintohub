@@ -277,14 +277,16 @@ function StartAimbot()
     if Resources.Aimbot.Connection then return end
 
     Resources.Aimbot.Connection = RunService.RenderStepped:Connect(function()
-        if Resources.Aimbot.Active and AimbotEnabled then
-            local target = GetClosestPlayer()
-            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                local targetPosition = target.Character.HumanoidRootPart.Position
-                local currentCFrame = Camera.CFrame
-                local newCFrame = CFrame.new(currentCFrame.Position, targetPosition)
-                Camera.CFrame = currentCFrame:Lerp(newCFrame, 1 - AimbotSettings.Smoothness)
-            end
+        if not AimbotEnabled or not Resources.Aimbot.Active then return end
+
+        local target = GetClosestPlayer()
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            local targetPosition = target.Character.HumanoidRootPart.Position
+            local currentCFrame = Camera.CFrame
+            local newCFrame = CFrame.new(currentCFrame.Position, targetPosition)
+
+            -- Aplicar suavização
+            Camera.CFrame = currentCFrame:Lerp(newCFrame, 1 - AimbotSettings.Smoothness)
         end
     end)
 end
