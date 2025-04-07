@@ -44,7 +44,7 @@ local AimbotSettings = {
     Smoothness = 0.5,
     FOV = 400,
     TeamCheck = false,
-    VisibleCheck = false, -- Desativado temporariamente para testes
+    VisibleCheck = false,
     AimPart = "Head",
     FOVVisible = true,
     DrawFOVColor = Color3.fromRGB(255, 255, 255)
@@ -61,11 +61,13 @@ local HitboxSettings = {
 
 -- Controle de delay para logs
 local lastTargetLogTime = 0
+local lastNoTargetLogTime = 0
 local targetLogCooldown = 1
+local noTargetLogCooldown = 5
 
--- Verificar se a biblioteca Drawing está disponível
+-- Verificar biblioteca Drawing
 if not Drawing then
-    warn("[Erro] Biblioteca 'Drawing' não está disponível. Este script requer um executor que suporte a biblioteca Drawing (ex.: Synapse X, Krnl).")
+    warn("[Erro] Biblioteca 'Drawing' não disponível.")
     return
 end
 
@@ -73,7 +75,6 @@ end
 local FOVCircle = Drawing.new("Circle")
 FOVCircle.Visible = false
 FOVCircle.Thickness = 1
--- Removido: FOVCircle.NumSides = 30 (propriedade inválida)
 FOVCircle.Radius = AimbotSettings.FOV
 FOVCircle.Filled = false
 FOVCircle.Transparency = 0.7
@@ -81,10 +82,7 @@ FOVCircle.Color = AimbotSettings.DrawFOVColor
 
 -- Funções Auxiliares
 local function UpdateFOVCircle()
-    if not FOVCircle then 
-        print("[Aimbot] FOVCircle não inicializado")
-        return 
-    end
+    if not FOVCircle then return end
     FOVCircle.Visible = AimbotEnabled and AimbotSettings.FOVVisible
     FOVCircle.Radius = AimbotSettings.FOV
     FOVCircle.Position = Vector2.new(Mouse.X, Mouse.Y + 36)
@@ -123,14 +121,8 @@ end
 
 -- Funções do ESP
 local function SetupESP(player)
-    if not player or not player.Character then 
-        print("[ESP] Jogador ou personagem não encontrado:", player and player.Name or "nil")
-        return 
-    end
-    if ESPSettings.TeamCheck and player.Team == LocalPlayer.Team then 
-        print("[ESP] Ignorando jogador do mesmo time:", player.Name)
-        return 
-    end
+    if not player or not player.Character then return end
+    if ESPSettings.TeamCheck and player.Team == LocalPlayer.Team then return end
 
     local function createHighlight(character)
         if Resources.ESPObjects[player] and Resources.ESPObjects[player].Parent then
@@ -144,14 +136,12 @@ local function SetupESP(player)
         highlight.FillTransparency = ESPSettings.FillTransparency
         highlight.OutlineTransparency = ESPSettings.OutlineTransparency
         Resources.ESPObjects[player] = highlight
-        print("[ESP] Highlight criado para:", player.Name)
     end
 
     table.insert(Resources.Connections, player.CharacterAdded:Connect(function(character)
         task.wait(1)
         if ESPEnabled and (not ESPSettings.TeamCheck or player.Team ~= LocalPlayer.Team) then
             createHighlight(character)
-            print("[ESP] Reaplicado para jogador que reapareceu:", player.Name)
         end
     end))
     createHighlight(player.Character)
@@ -160,52 +150,29 @@ end
 function EnableESP()
     DisableESP()
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then 
-            SetupESP(player)
-        end
+        if player ~= LocalPlayer then SetupESP(player) end
     end
-    print("[ESP] Ativado para todos os jogadores")
 end
 
 function DisableESP()
-    for player, highlight in pairs(Resources.ESPObjects) do
+    for _, highlight in pairs(Resources.ESPObjects) do
         if highlight and highlight.Parent then highlight:Destroy() end
     end
     Resources.ESPObjects = {}
-    print("[ESP] Desativado")
 end
 
 -- Funções do Aimbot
 local function IsPlayerValid(player)
-    if not AimbotEnabled then 
-        print("[Aimbot] Aimbot desativado, validação cancelada")
-        return false 
-    end
-    if player == LocalPlayer then 
-        print("[Aimbot] Ignorando jogador local:", player.Name)
-        return false 
-    end
-    if not player.Character then 
-        print("[Aimbot] Personagem não encontrado para:", player.Name)
-        return false 
-    end
+    if not AimbotEnabled or player == LocalPlayer then return false end
+    if not player.Character then return false end
     
     local humanoid = player.Character:FindFirstChild("Humanoid")
-    if not humanoid or humanoid.Health <= 0 then 
-        print("[Aimbot] Jogador morto ou sem Humanoid:", player.Name)
-        return false 
-    end
+    if not humanoid or humanoid.Health <= 0 then return false end
     
     local targetPart = player.Character:FindFirstChild(AimbotSettings.AimPart)
-    if not targetPart then 
-        print("[Aimbot] Parte do corpo não encontrada:", AimbotSettings.AimPart, "para", player.Name)
-        return false 
-    end
+    if not targetPart then return false end
     
-    if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then 
-        print("[Aimbot] Ignorando jogador do mesmo time:", player.Name)
-        return false 
-    end
+    if AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then return false end
     
     if AimbotSettings.VisibleCheck then
         local raycastParams = RaycastParams.new()
@@ -216,14 +183,10 @@ local function IsPlayerValid(player)
         local raycastResult = workspace:Raycast(origin, direction, raycastParams)
         if raycastResult and raycastResult.Instance then
             local hitModel = raycastResult.Instance:FindFirstAncestorOfClass("Model")
-            if hitModel ~= player.Character then 
-                print("[Aimbot] Alvo não visível:", player.Name)
-                return false 
-            end
+            if hitModel ~= player.Character then return false end
         end
     end
     
-    print("[Aimbot] Jogador válido:", player.Name)
     return true
 end
 
@@ -244,19 +207,19 @@ local function GetClosestPlayerToMouse()
                         shortestDistance = distance
                         local currentTime = tick()
                         if currentTime - lastTargetLogTime >= targetLogCooldown then
-                            print("[Aimbot] Alvo encontrado:", player.Name, "Distância:", distance)
                             lastTargetLogTime = currentTime
                         end
                     end
-                else
-                    print("[Aimbot] Alvo fora da tela:", player.Name)
                 end
             end
         end
     end
     
     if not closestPlayer then
-        print("[Aimbot] Nenhum alvo encontrado dentro do FOV")
+        local currentTime = tick()
+        if currentTime - lastNoTargetLogTime >= noTargetLogCooldown then
+            lastNoTargetLogTime = currentTime
+        end
     end
     return closestPlayer
 end
@@ -264,7 +227,6 @@ end
 function AimbotUpdate()
     if not AimbotEnabled then 
         Resources.Aimbot.Target = nil
-        print("[Aimbot] Aimbot desativado, atualização cancelada")
         return 
     end
     
@@ -273,14 +235,10 @@ function AimbotUpdate()
     if AimbotMode == "Hold" and not UserInputService:IsKeyDown(AimbotKey) then
         Resources.Aimbot.Active = false
         Resources.Aimbot.Target = nil
-        print("[Aimbot] Modo Hold: Tecla não pressionada, Aimbot desativado")
         return
     end
     
-    if not Resources.Aimbot.Active then 
-        print("[Aimbot] Aimbot não está ativo")
-        return 
-    end
+    if not Resources.Aimbot.Active then return end
     
     local target = Resources.Aimbot.Target
     if not target or not IsPlayerValid(target) then
@@ -294,13 +252,10 @@ function AimbotUpdate()
             local currentCFrame = Camera.CFrame
             local targetPosition = targetPart.Position
             local targetCFrame = CFrame.new(currentCFrame.Position, targetPosition)
-            Camera.CFrame = currentCFrame:Lerp(targetCFrame, AimbotSettings.Smoothness) -- Ajustado para suavidade mais natural
-            print("[Aimbot] Câmera ajustada para alvo:", target.Name)
+            Camera.CFrame = currentCFrame:Lerp(targetCFrame, AimbotSettings.Smoothness)
         else
-            print("[Aimbot] Parte do alvo não encontrada:", AimbotSettings.AimPart)
+            warn("[Aimbot] Parte do alvo não encontrada:", AimbotSettings.AimPart)
         end
-    else
-        print("[Aimbot] Nenhum alvo válido para mirar")
     end
 end
 
@@ -316,7 +271,6 @@ local function ExpandPlayerHitbox(player)
         humanoidRootPart.Transparency = HitboxSettings.Visible and HitboxSettings.Transparency or 1
         humanoidRootPart.BrickColor = BrickColor.new(HitboxSettings.Color)
         humanoidRootPart.CanCollide = false
-        print("[Expand Hitbox] Hitbox expandida para:", player.Name)
     end
 end
 
@@ -348,7 +302,6 @@ local function SetupHitbox(player)
         task.wait(1)
         if HitboxSettings.Enabled then
             ExpandPlayerHitbox(player)
-            print("[Hitbox] Reaplicado para jogador que reapareceu:", player.Name)
         end
     end))
     if HitboxSettings.Enabled then
@@ -361,7 +314,7 @@ local function CleanupResources()
         if connection then connection:Disconnect() end
     end
     Resources.Connections = {}
-    for player, highlight in pairs(Resources.ESPObjects) do
+    for _, highlight in pairs(Resources.ESPObjects) do
         if highlight and highlight.Parent then highlight:Destroy() end
     end
     Resources.ESPObjects = {}
@@ -378,18 +331,19 @@ local function CleanupResources()
     end
 end
 
--- Criação da UI
+-- Criação da UI com Lucide Icons
 local Window = Rayfield:CreateWindow({
     Name = "Pinto Hub",
     LoadingTitle = "Pinto Hub",
     LoadingSubtitle = "by PintoTeam",
     ConfigurationSaving = {Enabled = false, FolderName = "PintoHubConfig", FileName = "PintoHubSettings"},
     Discord = {Enabled = false, Invite = "", RememberJoins = true},
-    KeySystem = false
+    KeySystem = false,
+    Icon = "rocket" -- Lucide Icon
 })
 
 -- Aba Funções
-local MainTab = Window:CreateTab("Funções", 4483345998)
+local MainTab = Window:CreateTab("Funções", "zap") -- Lucide Icon
 local ESPSection = MainTab:CreateSection("ESP")
 
 local ESPToggle = MainTab:CreateToggle({
@@ -418,7 +372,6 @@ local DestroyButton = MainTab:CreateButton({
         CleanupResources()
         if FOVCircle then FOVCircle:Remove() end
         Rayfield:Destroy()
-        print("Interface destruída.")
     end
 })
 
@@ -427,7 +380,6 @@ local RejoinButton = MainTab:CreateButton({
     Callback = function()
         local placeId = game.PlaceId
         local jobId = game.JobId
-        print("[Pinto Hub] Tentando reconectar ao servidor:", jobId)
         TeleportService:TeleportToPlaceInstance(placeId, jobId, LocalPlayer)
     end
 })
@@ -435,7 +387,6 @@ local RejoinButton = MainTab:CreateButton({
 local TestCameraButton = MainTab:CreateButton({
     Name = "Testar Câmera",
     Callback = function()
-        print("[Teste] Rotacionando câmera para frente")
         local currentCFrame = Camera.CFrame
         local targetCFrame = CFrame.new(currentCFrame.Position, currentCFrame.Position + Vector3.new(0, 0, -10))
         Camera.CFrame = targetCFrame
@@ -452,12 +403,10 @@ local AimbotToggle = MainTab:CreateToggle({
         AimbotEnabled = Value
         if AimbotEnabled then
             RunService:BindToRenderStep("AimbotUpdate", Enum.RenderPriority.Last.Value, AimbotUpdate)
-            print("[Aimbot] Ativado globalmente")
         else
             RunService:UnbindFromRenderStep("AimbotUpdate")
             Resources.Aimbot.Active = false
             Resources.Aimbot.Target = nil
-            print("[Aimbot] Desativado globalmente")
         end
         FOVCircle.Visible = AimbotEnabled and AimbotSettings.FOVVisible
     end
@@ -469,9 +418,7 @@ local AimbotKeybind = MainTab:CreateKeybind({
     HoldToInteract = false,
     Flag = "AimbotKeybind",
     Callback = function(Keybind)
-        local newKey = getValidKeybind(Keybind)
-        AimbotKey = newKey
-        print("[Aimbot] Tecla definida para:", newKey.Name or "E")
+        AimbotKey = getValidKeybind(Keybind)
     end
 })
 
@@ -483,7 +430,6 @@ local AimbotModeDropdown = MainTab:CreateDropdown({
     Callback = function(Option)
         AimbotMode = Option
         Resources.Aimbot.Active = false
-        print("[Aimbot] Modo alterado para:", Option)
     end
 })
 
@@ -494,7 +440,6 @@ local AimbotPartDropdown = MainTab:CreateDropdown({
     Flag = "AimbotPart",
     Callback = function(Option)
         AimbotSettings.AimPart = Option
-        print("[Aimbot] Parte do corpo alterada para:", Option)
     end
 })
 
@@ -508,7 +453,6 @@ local AimbotFOVSlider = MainTab:CreateSlider({
     Callback = function(Value)
         AimbotSettings.FOV = Value
         FOVCircle.Radius = Value
-        print("[Aimbot] FOV ajustado para:", Value)
     end
 })
 
@@ -521,7 +465,6 @@ local AimbotSmoothnessSlider = MainTab:CreateSlider({
     Flag = "AimbotSmoothness",
     Callback = function(Value)
         AimbotSettings.Smoothness = Value / 10
-        print("[Aimbot] Suavização ajustada para:", Value / 10)
     end
 })
 
@@ -531,7 +474,6 @@ local AimbotTeamCheckToggle = MainTab:CreateToggle({
     Flag = "AimbotTeamCheck",
     Callback = function(Value)
         AimbotSettings.TeamCheck = Value
-        print("[Aimbot] Check Team:", Value and "Ativado" or "Desativado")
     end
 })
 
@@ -541,7 +483,6 @@ local AimbotVisibleCheckToggle = MainTab:CreateToggle({
     Flag = "AimbotVisibleCheck",
     Callback = function(Value)
         AimbotSettings.VisibleCheck = Value
-        print("[Aimbot] Check Visibilidade:", Value and "Ativado" or "Desativado")
     end
 })
 
@@ -552,7 +493,6 @@ local AimbotFOVVisibleToggle = MainTab:CreateToggle({
     Callback = function(Value)
         AimbotSettings.FOVVisible = Value
         FOVCircle.Visible = AimbotEnabled and Value
-        print("[Aimbot] Círculo FOV:", Value and "Visível" or "Oculto")
     end
 })
 
@@ -566,7 +506,6 @@ local HitboxToggle = MainTab:CreateToggle({
     Callback = function(Value)
         HitboxSettings.Enabled = Value
         EnableHitboxExpansion()
-        print("[Expand Hitbox] Estado:", Value and "Ativado" or "Desativado")
     end
 })
 
@@ -579,10 +518,7 @@ local HitboxSizeSlider = MainTab:CreateSlider({
     Flag = "Hitbox_Size",
     Callback = function(Value)
         HitboxSettings.Size = Value
-        if HitboxSettings.Enabled then
-            EnableHitboxExpansion()
-        end
-        print("[Expand Hitbox] Tamanho ajustado para:", Value)
+        if HitboxSettings.Enabled then EnableHitboxExpansion() end
     end
 })
 
@@ -592,10 +528,7 @@ local HitboxTeamCheckToggle = MainTab:CreateToggle({
     Flag = "Hitbox_TeamCheck",
     Callback = function(Value)
         HitboxSettings.TeamCheck = Value
-        if HitboxSettings.Enabled then
-            EnableHitboxExpansion()
-        end
-        print("[Expand Hitbox] Check Team:", Value and "Ativado" or "Desativado")
+        if HitboxSettings.Enabled then EnableHitboxExpansion() end
     end
 })
 
@@ -605,10 +538,7 @@ local HitboxVisibleToggle = MainTab:CreateToggle({
     Flag = "Hitbox_Visible",
     Callback = function(Value)
         HitboxSettings.Visible = Value
-        if HitboxSettings.Enabled then
-            EnableHitboxExpansion()
-        end
-        print("[Expand Hitbox] Visibilidade:", Value and "Ativada" or "Desativada")
+        if HitboxSettings.Enabled then EnableHitboxExpansion() end
     end
 })
 
@@ -618,34 +548,24 @@ local HitboxColorPicker = MainTab:CreateColorPicker({
     Flag = "Hitbox_Color",
     Callback = function(Value)
         HitboxSettings.Color = Value
-        if HitboxSettings.Enabled then
-            EnableHitboxExpansion()
-        end
-        print("[Expand Hitbox] Cor ajustada para:", Value)
+        if HitboxSettings.Enabled then EnableHitboxExpansion() end
     end
 })
 
 -- Aba Configurações
-local ConfigTab = Window:CreateTab("Configurações", 4483362458)
+local ConfigTab = Window:CreateTab("Configurações", "settings") -- Lucide Icon
 local ConfigSection = ConfigTab:CreateSection("Gerenciar Configurações")
 
 local function GetSavedProfiles()
     local configFolder = "PintoHubConfig"
-    if not isfolder(configFolder) then
-        return {"Nenhum perfil encontrado"}
-    end
+    if not isfolder(configFolder) then return {"Nenhum perfil encontrado"} end
     local files = listfiles(configFolder)
     local profiles = {}
     for _, file in ipairs(files) do
         local profileName = file:match(configFolder .. "/(.+)%.json$")
-        if profileName then
-            table.insert(profiles, profileName)
-        end
+        if profileName then table.insert(profiles, profileName) end
     end
-    if #profiles == 0 then
-        return {"Nenhum perfil encontrado"}
-    end
-    return profiles
+    return #profiles > 0 and profiles or {"Nenhum perfil encontrado"}
 end
 
 local ProfileNameInput = ConfigTab:CreateInput({
@@ -653,10 +573,7 @@ local ProfileNameInput = ConfigTab:CreateInput({
     Info = "Digite o nome do perfil para salvar ou carregar",
     PlaceholderText = "MeuPerfil",
     CurrentValue = "",
-    Flag = "ProfileName",
-    Callback = function(Value)
-        print("[Config] Nome do perfil definido para:", Value)
-    end
+    Flag = "ProfileName"
 })
 
 local ProfileDropdown = ConfigTab:CreateDropdown({
@@ -666,7 +583,6 @@ local ProfileDropdown = ConfigTab:CreateDropdown({
     Flag = "ProfileDropdown",
     Callback = function(Option)
         ProfileNameInput:Set(Option)
-        print("[Config] Perfil selecionado:", Option)
     end
 })
 
@@ -675,12 +591,7 @@ local SaveConfigButton = ConfigTab:CreateButton({
     Callback = function()
         local profileName = sanitizeProfileName(ProfileNameInput.CurrentValue)
         if profileName == "" or profileName == "Nenhum perfil encontrado" then
-            Rayfield:Notify({
-                Title = "Erro",
-                Content = "Por favor, insira um nome válido para o perfil!",
-                Duration = 3,
-                Image = 4483362458
-            })
+            Rayfield:Notify({Title = "Erro", Content = "Nome inválido!", Duration = 3, Image = "alert-circle"})
             return
         end
 
@@ -696,18 +607,9 @@ local SaveConfigButton = ConfigTab:CreateButton({
         }
 
         local configFolder = "PintoHubConfig"
-        if not isfolder(configFolder) then
-            makefolder(configFolder)
-        end
-
+        if not isfolder(configFolder) then makefolder(configFolder) end
         writefile(configFolder .. "/" .. profileName .. ".json", game:GetService("HttpService"):JSONEncode(configData))
-        Rayfield:Notify({
-            Title = "Sucesso",
-            Content = "Configurações salvas como: " .. profileName,
-            Duration = 3,
-            Image = 4483362458
-        })
-
+        Rayfield:Notify({Title = "Sucesso", Content = "Salvo: " .. profileName, Duration = 3, Image = "check-circle"})
         ProfileDropdown:Refresh(GetSavedProfiles(), profileName)
     end
 })
@@ -716,16 +618,9 @@ local LoadConfigButton = ConfigTab:CreateButton({
     Name = "Carregar Configurações",
     Callback = function()
         local profileName = sanitizeProfileName(ProfileNameInput.CurrentValue)
-        local configFolder = "PintoHubConfig"
-        local filePath = configFolder .. "/" .. profileName .. ".json"
-
+        local filePath = "PintoHubConfig/" .. profileName .. ".json"
         if not isfile(filePath) then
-            Rayfield:Notify({
-                Title = "Erro",
-                Content = "Perfil não encontrado: " .. profileName,
-                Duration = 3,
-                Image = 4483362458
-            })
+            Rayfield:Notify({Title = "Erro", Content = "Perfil não encontrado!", Duration = 3, Image = "alert-circle"})
             return
         end
 
@@ -733,12 +628,7 @@ local LoadConfigButton = ConfigTab:CreateButton({
             return game:GetService("HttpService"):JSONDecode(readfile(filePath))
         end)
         if not success then
-            Rayfield:Notify({
-                Title = "Erro",
-                Content = "Falha ao carregar o perfil: " .. profileName .. " (arquivo corrompido)",
-                Duration = 3,
-                Image = 4483362458
-            })
+            Rayfield:Notify({Title = "Erro", Content = "Falha ao carregar: " .. profileName, Duration = 3, Image = "alert-circle"})
             return
         end
 
@@ -769,13 +659,7 @@ local LoadConfigButton = ConfigTab:CreateButton({
         HitboxColorPicker:Set(HitboxSettings.Color)
 
         ProfileDropdown:Set(profileName)
-
-        Rayfield:Notify({
-            Title = "Sucesso",
-            Content = "Configurações carregadas de: " .. profileName,
-            Duration = 3,
-            Image = 4483362458
-        })
+        Rayfield:Notify({Title = "Sucesso", Content = "Carregado: " .. profileName, Duration = 3, Image = "check-circle"})
     end
 })
 
@@ -786,20 +670,10 @@ local DeleteConfigButton = ConfigTab:CreateButton({
         local filePath = "PintoHubConfig/" .. profileName .. ".json"
         if isfile(filePath) then
             delfile(filePath)
-            Rayfield:Notify({
-                Title = "Sucesso",
-                Content = "Perfil deletado: " .. profileName,
-                Duration = 3,
-                Image = 4483362458
-            })
+            Rayfield:Notify({Title = "Sucesso", Content = "Deletado: " .. profileName, Duration = 3, Image = "trash-2"})
             ProfileDropdown:Refresh(GetSavedProfiles(), "Nenhum perfil encontrado")
         else
-            Rayfield:Notify({
-                Title = "Erro",
-                Content = "Perfil não encontrado: " .. profileName,
-                Duration = 3,
-                Image = 4483362458
-            })
+            Rayfield:Notify({Title = "Erro", Content = "Perfil não encontrado!", Duration = 3, Image = "alert-circle"})
         end
     end
 })
@@ -828,16 +702,13 @@ ConfigSection:CreateDropdown({
 -- Eventos
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not AimbotEnabled then return end
-    
     if input.KeyCode == AimbotKey then
         if AimbotMode == "Toggle" then
             Resources.Aimbot.Active = not Resources.Aimbot.Active
             Resources.Aimbot.Target = nil
-            print("[Aimbot] Estado Toggle:", Resources.Aimbot.Active and "Ativado" or "Desativado")
         elseif AimbotMode == "Hold" then
             Resources.Aimbot.Active = true
             Resources.Aimbot.Target = nil
-            print("[Aimbot] Ativado (Hold)")
         end
     end
 end)
@@ -847,7 +718,6 @@ UserInputService.InputEnded:Connect(function(input, gameProcessed)
     if AimbotMode == "Hold" and input.KeyCode == AimbotKey then
         Resources.Aimbot.Active = false
         Resources.Aimbot.Target = nil
-        print("[Aimbot] Desativado (Hold)")
     end
 end)
 
@@ -855,7 +725,6 @@ Players.PlayerAdded:Connect(function(player)
     if player ~= LocalPlayer then 
         SetupESP(player)
         SetupHitbox(player)
-        print("[PlayerAdded] ESP e Hitbox configurados para novo jogador:", player.Name)
     end
 end)
 
@@ -871,8 +740,8 @@ Rayfield:Notify({
     Title = "Pinto Hub",
     Content = "Script carregado com sucesso!",
     Duration = 6.5,
-    Image = 4483345998,
-    Actions = {Ignore = {Name = "OK", Callback = function() print("O usuário reconheceu a notificação") end}}
+    Image = "check", -- Lucide Icon
+    Actions = {Ignore = {Name = "OK", Callback = function() end}}
 })
 
 RunService:BindToRenderStep("FOVUpdate", Enum.RenderPriority.Camera.Value + 1, UpdateFOVCircle)
