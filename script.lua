@@ -690,7 +690,7 @@ local Themes = {
     ["Serenity"] = "Serenity"
 }
 
-ConfigSection:CreateDropdown({
+local DropdownTemaConfig = ConfigSection:CreateDropdown({
     Name = "Tema da UI",
     Options = {"Default", "Amber Glow", "Amethyst", "Bloom", "Dark Blue", "Green", "Light", "Ocean", "Serenity"},
     CurrentOption = "Default",
