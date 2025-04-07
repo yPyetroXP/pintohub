@@ -505,6 +505,59 @@ local RejoinButton = MainTab:CreateButton({
     end
 })
 
+-- Nova seção: Teleportar para Jogos
+local TeleportSection = MainTab:CreateSection("Teleportar para Jogos")
+
+local TeleportToArsenalButton = MainTab:CreateButton({
+    Name = "Teleportar para Arsenal",
+    Info = "Teleporta para o jogo Arsenal (ID: 286090429)",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Confirmação",
+            Content = "Deseja teleportar para Arsenal? Você será desconectado do jogo atual.",
+            Duration = 5,
+            Image = "alert-triangle",
+            Actions = {
+                Confirm = {
+                    Name = "Sim",
+                    Callback = function()
+                        TeleportService:Teleport(286090429, LocalPlayer)
+                    end
+                },
+                Ignore = {
+                    Name = "Não",
+                    Callback = function() end
+                }
+            }
+        })
+    end
+})
+
+local TeleportToLiteralBasePlateButton = MainTab:CreateButton({
+    Name = "Teleportar para Literal Base Plate",
+    Info = "Teleporta para o jogo Literal Base Plate (ID: 4483381587)",
+    Callback = function()
+        Rayfield:Notify({
+            Title = "Confirmação",
+            Content = "Deseja teleportar para Literal Base Plate? Você será desconectado do jogo atual.",
+            Duration = 5,
+            Image = "alert-triangle",
+            Actions = {
+                Confirm = {
+                    Name = "Sim",
+                    Callback = function()
+                        TeleportService:Teleport(4483381587, LocalPlayer)
+                    end
+                },
+                Ignore = {
+                    Name = "Não",
+                    Callback = function() end
+                }
+            }
+        })
+    end
+})
+
 local TestCameraButton = MainTab:CreateButton({
     Name = "Testar Câmera",
     Info = "Testa o movimento da câmera para frente",
