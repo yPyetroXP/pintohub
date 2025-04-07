@@ -573,7 +573,10 @@ local ProfileNameInput = ConfigTab:CreateInput({
     Info = "Digite o nome do perfil para salvar ou carregar",
     PlaceholderText = "MeuPerfil",
     CurrentValue = "",
-    Flag = "ProfileName"
+    Flag = "ProfileName",
+    Callback = function(Value)
+        print("[Config] Nome do perfil definido para:", Value)
+    end
 })
 
 local ProfileDropdown = ConfigTab:CreateDropdown({
@@ -583,6 +586,7 @@ local ProfileDropdown = ConfigTab:CreateDropdown({
     Flag = "ProfileDropdown",
     Callback = function(Option)
         ProfileNameInput:Set(Option)
+        print("[Config] Perfil selecionado:", Option)
     end
 })
 
@@ -591,7 +595,12 @@ local SaveConfigButton = ConfigTab:CreateButton({
     Callback = function()
         local profileName = sanitizeProfileName(ProfileNameInput.CurrentValue)
         if profileName == "" or profileName == "Nenhum perfil encontrado" then
-            Rayfield:Notify({Title = "Erro", Content = "Nome inválido!", Duration = 3, Image = "alert-circle"})
+            Rayfield:Notify({
+                Title = "Erro",
+                Content = "Por favor, insira um nome válido para o perfil!",
+                Duration = 3,
+                Image = "alert-circle" -- Lucide Icon
+            })
             return
         end
 
@@ -607,9 +616,18 @@ local SaveConfigButton = ConfigTab:CreateButton({
         }
 
         local configFolder = "PintoHubConfig"
-        if not isfolder(configFolder) then makefolder(configFolder) end
+        if not isfolder(configFolder) then
+            makefolder(configFolder)
+        end
+
         writefile(configFolder .. "/" .. profileName .. ".json", game:GetService("HttpService"):JSONEncode(configData))
-        Rayfield:Notify({Title = "Sucesso", Content = "Salvo: " .. profileName, Duration = 3, Image = "check-circle"})
+        Rayfield:Notify({
+            Title = "Sucesso",
+            Content = "Configurações salvas como: " .. profileName,
+            Duration = 3,
+            Image = "check-circle" -- Lucide Icon
+        })
+
         ProfileDropdown:Refresh(GetSavedProfiles(), profileName)
     end
 })
@@ -618,9 +636,16 @@ local LoadConfigButton = ConfigTab:CreateButton({
     Name = "Carregar Configurações",
     Callback = function()
         local profileName = sanitizeProfileName(ProfileNameInput.CurrentValue)
-        local filePath = "PintoHubConfig/" .. profileName .. ".json"
+        local configFolder = "PintoHubConfig"
+        local filePath = configFolder .. "/" .. profileName .. ".json"
+
         if not isfile(filePath) then
-            Rayfield:Notify({Title = "Erro", Content = "Perfil não encontrado!", Duration = 3, Image = "alert-circle"})
+            Rayfield:Notify({
+                Title = "Erro",
+                Content = "Perfil não encontrado: " .. profileName,
+                Duration = 3,
+                Image = "alert-circle" -- Lucide Icon
+            })
             return
         end
 
@@ -628,7 +653,12 @@ local LoadConfigButton = ConfigTab:CreateButton({
             return game:GetService("HttpService"):JSONDecode(readfile(filePath))
         end)
         if not success then
-            Rayfield:Notify({Title = "Erro", Content = "Falha ao carregar: " .. profileName, Duration = 3, Image = "alert-circle"})
+            Rayfield:Notify({
+                Title = "Erro",
+                Content = "Falha ao carregar o perfil: " .. profileName .. " (arquivo corrompido)",
+                Duration = 3,
+                Image = "alert-circle" -- Lucide Icon
+            })
             return
         end
 
@@ -659,7 +689,13 @@ local LoadConfigButton = ConfigTab:CreateButton({
         HitboxColorPicker:Set(HitboxSettings.Color)
 
         ProfileDropdown:Set(profileName)
-        Rayfield:Notify({Title = "Sucesso", Content = "Carregado: " .. profileName, Duration = 3, Image = "check-circle"})
+
+        Rayfield:Notify({
+            Title = "Sucesso",
+            Content = "Configurações carregadas de: " .. profileName,
+            Duration = 3,
+            Image = "check-circle" -- Lucide Icon
+        })
     end
 })
 
@@ -670,38 +706,28 @@ local DeleteConfigButton = ConfigTab:CreateButton({
         local filePath = "PintoHubConfig/" .. profileName .. ".json"
         if isfile(filePath) then
             delfile(filePath)
-            Rayfield:Notify({Title = "Sucesso", Content = "Deletado: " .. profileName, Duration = 3, Image = "trash-2"})
+            Rayfield:Notify({
+                Title = "Sucesso",
+                Content = "Perfil deletado: " .. profileName,
+                Duration = 3,
+                Image = "trash-2" -- Lucide Icon
+            })
             ProfileDropdown:Refresh(GetSavedProfiles(), "Nenhum perfil encontrado")
         else
-            Rayfield:Notify({Title = "Erro", Content = "Perfil não encontrado!", Duration = 3, Image = "alert-circle"})
+            Rayfield:Notify({
+                Title = "Erro",
+                Content = "Perfil não encontrado: " .. profileName,
+                Duration = 3,
+                Image = "alert-circle" -- Lucide Icon
+            })
         end
-    end
-})
-
-local Themes = {
-    ["Default"] = "Default",
-    ["Amber Glow"] = "AmberGlow",
-    ["Amethyst"] = "Amethyst",
-    ["Bloom"] = "Bloom",
-    ["Dark Blue"] = "DarkBlue",
-    ["Green"] = "Green",
-    ["Light"] = "Light",
-    ["Ocean"] = "Ocean",
-    ["Serenity"] = "Serenity"
-}
-
-local DropdownTemaConfig = ConfigSection:CreateDropdown({
-    Name = "Tema da UI",
-    Options = {"Default", "Amber Glow", "Amethyst", "Bloom", "Dark Blue", "Green", "Light", "Ocean", "Serenity"},
-    CurrentOption = "Default",
-    Callback = function(selected)
-        Rayfield:LoadTheme(Themes[selected])
     end
 })
 
 -- Eventos
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed or not AimbotEnabled then return end
+    
     if input.KeyCode == AimbotKey then
         if AimbotMode == "Toggle" then
             Resources.Aimbot.Active = not Resources.Aimbot.Active
@@ -741,7 +767,7 @@ Rayfield:Notify({
     Content = "Script carregado com sucesso!",
     Duration = 6.5,
     Image = "check", -- Lucide Icon
-    Actions = {Ignore = {Name = "OK", Callback = function() end}}
+    Actions = {Ignore = {Name = "OK", Callback = function() print("O usuário reconheceu a notificação") end}}
 })
 
 RunService:BindToRenderStep("FOVUpdate", Enum.RenderPriority.Camera.Value + 1, UpdateFOVCircle)
